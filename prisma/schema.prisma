@@ -1,0 +1,49 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Community {
+  id              String   @id @default(uuid())
+  orgUnit         String   @unique
+  orgName         String
+  latitude        Float?
+  longitude       Float?
+  totalEmissions  Float    @default(0)
+  resEmissions    Float    @default(0)
+  csmiEmissions   Float    @default(0)
+  mixedEmissions  Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  emissionsData EmissionsData[]
+
+  @@index([orgName])
+  @@index([totalEmissions])
+}
+
+model EmissionsData {
+  id          String   @id @default(uuid())
+  communityId String
+  source      String
+  energyType  String
+  subSector   String   // Res, CSMI, MIXED
+  consumption Float
+  connections Int?
+  emissions   Float
+  year        Int
+  createdAt   DateTime @default(now())
+
+  community   Community @relation(fields: [communityId], references: [id])
+
+  @@index([communityId])
+  @@index([subSector])
+  @@index([year])
+}
