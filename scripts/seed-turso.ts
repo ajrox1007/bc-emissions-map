@@ -554,9 +554,211 @@ async function main() {
     }
   }
   
-  console.log("✅ Turso database seeded successfully!");
+  console.log("✅ Communities seeded successfully!");
   console.log(`   📊 Communities: ${created}`);
   console.log(`   📈 Emissions records: ${totalRecords}`);
+  
+  // ===== Seed MajorProject Data =====
+  console.log("\n🏗️  Seeding Major Projects...");
+  
+  // Drop and recreate MajorProject table
+  await libsql.execute(`DROP TABLE IF EXISTS MajorProject`);
+  
+  await libsql.execute(`
+    CREATE TABLE MajorProject (
+      id TEXT PRIMARY KEY,
+      projectId INTEGER UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      estimatedCost REAL NOT NULL,
+      updateActivity TEXT,
+      constructionType TEXT,
+      constructionSubtype TEXT,
+      projectType TEXT,
+      region TEXT,
+      municipality TEXT,
+      latitude REAL,
+      longitude REAL,
+      developer TEXT,
+      architect TEXT,
+      projectStatus TEXT NOT NULL,
+      projectStage TEXT,
+      categoryName TEXT,
+      publicFunding INTEGER,
+      provincialFunding INTEGER,
+      federalFunding INTEGER,
+      municipalFunding INTEGER,
+      otherPublicFunding INTEGER,
+      greenBuilding INTEGER,
+      cleanEnergy INTEGER,
+      indigenous INTEGER,
+      startDate TEXT,
+      completionDate TEXT,
+      telephone TEXT,
+      firstEntryDate TEXT,
+      lastUpdate TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
+  
+  await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_project_status ON MajorProject(projectStatus)`);
+  await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_project_constructionType ON MajorProject(constructionType)`);
+  await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_project_developer ON MajorProject(developer)`);
+  await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_project_estimatedCost ON MajorProject(estimatedCost)`);
+  await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_project_region ON MajorProject(region)`);
+  
+  // Find MPI Excel file
+  const mpiPaths = [
+    path.join(process.cwd(), "..", "mpi_dataset_q2_2025.xlsx"),
+    path.join(process.cwd(), "mpi_dataset_q2_2025.xlsx"),
+    path.join(process.cwd(), "data", "mpi_dataset_q2_2025.xlsx"),
+  ];
+  
+  let mpiPath = "";
+  for (const p of mpiPaths) {
+    if (fs.existsSync(p)) {
+      mpiPath = p;
+      break;
+    }
+  }
+  
+  if (!mpiPath) {
+    console.log("⚠️  MPI Excel file not found. Skipping major projects seeding.");
+  } else {
+    console.log(`📊 Reading MPI file: ${mpiPath}`);
+    const mpiWorkbook = XLSX.readFile(mpiPath);
+    const mpiSheetName = mpiWorkbook.SheetNames.find(name => 
+      name.toLowerCase().includes("mpi") || name.toLowerCase().includes("project")
+    ) || mpiWorkbook.SheetNames[0];
+    
+    console.log(`📋 Using sheet: ${mpiSheetName}`);
+    const mpiWorksheet = mpiWorkbook.Sheets[mpiSheetName];
+    const mpiRawData: Record<string, unknown>[] = XLSX.utils.sheet_to_json(mpiWorksheet);
+    
+    // Filter for Proposed and Construction started
+    const relevantProjects = mpiRawData.filter(row => {
+      const status = String(row["PROJECT_STATUS"] || "").toLowerCase();
+      return status === "proposed" || status === "construction started";
+    });
+    
+    console.log(`📈 Found ${relevantProjects.length} relevant projects (Proposed + Under Construction)`);
+    
+    // Municipality/Region to coordinates mapping
+    const PROJECT_COORDINATES: Record<string, { lat: number; lng: number }> = {
+      ...BC_COORDINATES,
+      "Greater Vancouver": { lat: 49.2827, lng: -123.1207 },
+      "Lower Mainland": { lat: 49.2, lng: -122.9 },
+      "Thompson Okanagan": { lat: 50.5, lng: -119.5 },
+      "Vancouver Island": { lat: 49.7, lng: -125.5 },
+      "Kootenays": { lat: 49.5, lng: -117.0 },
+      "Cariboo": { lat: 52.1, lng: -122.1 },
+      "Northeast": { lat: 56.2, lng: -120.8 },
+      "Northwest": { lat: 54.5, lng: -128.5 },
+    };
+    
+    function getProjectCoordinates(municipality: string, region: string): { lat: number | null; lng: number | null } {
+      // Try municipality first
+      if (municipality) {
+        const name = municipality.trim();
+        if (PROJECT_COORDINATES[name]) {
+          return { lat: PROJECT_COORDINATES[name].lat, lng: PROJECT_COORDINATES[name].lng };
+        }
+        for (const [key, coords] of Object.entries(PROJECT_COORDINATES)) {
+          if (name.toLowerCase().includes(key.toLowerCase()) || 
+              key.toLowerCase().includes(name.toLowerCase())) {
+            return { lat: coords.lat, lng: coords.lng };
+          }
+        }
+      }
+      
+      // Try region
+      if (region) {
+        const regionName = region.trim();
+        if (PROJECT_COORDINATES[regionName]) {
+          return { lat: PROJECT_COORDINATES[regionName].lat, lng: PROJECT_COORDINATES[regionName].lng };
+        }
+        for (const [key, coords] of Object.entries(PROJECT_COORDINATES)) {
+          if (regionName.toLowerCase().includes(key.toLowerCase()) || 
+              key.toLowerCase().includes(regionName.toLowerCase())) {
+            return { lat: coords.lat, lng: coords.lng };
+          }
+        }
+      }
+      
+      // Default to BC center with slight randomization
+      return { 
+        lat: 49.2 + (Math.random() - 0.5) * 2, 
+        lng: -123.0 + (Math.random() - 0.5) * 2 
+      };
+    }
+    
+    let projectsCreated = 0;
+    
+    for (const row of relevantProjects) {
+      const municipality = String(row["MUNICIPALITY"] || "");
+      const region = String(row["REGION"] || "");
+      const coords = getProjectCoordinates(municipality, region);
+      
+      const projectId = Number(row["PROJECT_ID"]) || Math.floor(Math.random() * 1000000);
+      const estimatedCost = Number(row["ESTIMATED_COST"]) || 0;
+      const developer = row["DEVELOPER"] ? String(row["DEVELOPER"]) : null;
+      
+      await libsql.execute({
+        sql: `INSERT INTO MajorProject (
+          id, projectId, name, description, estimatedCost, updateActivity, constructionType, constructionSubtype,
+          projectType, region, municipality, latitude, longitude, developer, architect, projectStatus, projectStage,
+          categoryName, publicFunding, provincialFunding, federalFunding, municipalFunding, otherPublicFunding,
+          greenBuilding, cleanEnergy, indigenous, startDate, completionDate, telephone, firstEntryDate, lastUpdate,
+          createdAt, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          crypto.randomUUID(),
+          projectId,
+          String(row["PROJECT_NAME"] || "Unknown Project"),
+          row["DESCRIPTION"] ? String(row["DESCRIPTION"]) : null,
+          estimatedCost,
+          row["UPDATE_ACTIVITY"] ? String(row["UPDATE_ACTIVITY"]) : null,
+          row["CONSTRUCTION_TYPE"] ? String(row["CONSTRUCTION_TYPE"]) : null,
+          row["CONSTRUCTION_SUBTYPE"] ? String(row["CONSTRUCTION_SUBTYPE"]) : null,
+          row["PROJECT_TYPE"] ? String(row["PROJECT_TYPE"]) : null,
+          region || null,
+          municipality || null,
+          coords.lat,
+          coords.lng,
+          developer,
+          row["ARCHITECT"] ? String(row["ARCHITECT"]) : null,
+          String(row["PROJECT_STATUS"] || "Proposed"),
+          row["PROJECT_STAGE"] ? String(row["PROJECT_STAGE"]) : null,
+          row["CATEGORY_NAME"] ? String(row["CATEGORY_NAME"]) : null,
+          row["PUBLIC_FUNDING"] ? 1 : 0,
+          row["PROVINCIAL_FUNDING"] ? 1 : 0,
+          row["FEDERAL_FUNDING"] ? 1 : 0,
+          row["MUNICIPAL_FUNDING"] ? 1 : 0,
+          row["OTHER_PUBLIC_FUNDING"] ? 1 : 0,
+          row["GREEN_BUILDING"] ? 1 : 0,
+          row["CLEAN_ENERGY"] ? 1 : 0,
+          row["INDIGENOUS"] ? 1 : 0,
+          row["START_DATE"] ? String(row["START_DATE"]) : null,
+          row["COMPLETION_DATE"] ? String(row["COMPLETION_DATE"]) : null,
+          row["TELEPHONE"] ? String(row["TELEPHONE"]) : null,
+          row["FIRST_ENTRY_DATE"] ? String(row["FIRST_ENTRY_DATE"]) : null,
+          row["LAST_UPDATE"] ? String(row["LAST_UPDATE"]) : null,
+          nowISO,
+          nowISO,
+        ],
+      });
+      
+      projectsCreated++;
+      if (projectsCreated % 100 === 0) {
+        console.log(`   Created ${projectsCreated}/${relevantProjects.length} projects...`);
+      }
+    }
+    
+    console.log(`✅ Major Projects seeded: ${projectsCreated}`);
+  }
+  
+  console.log("\n🎉 Turso database seeding complete!");
 }
 
 main().catch((e) => {

@@ -798,6 +798,284 @@ export const appRouter = router({
         },
       };
     }),
+
+  // ==========================================================================
+  // MAJOR PROJECTS INVENTORY
+  // ==========================================================================
+
+  // Get filtered projects
+  getFilteredProjects: publicProcedure
+    .input(
+      z.object({
+        constructionTypes: z.array(z.string()).optional(),
+        projectStatuses: z.array(z.string()).optional(),
+        minCost: z.number().optional(),
+        maxCost: z.number().optional(),
+        developers: z.array(z.string()).optional(),
+        regions: z.array(z.string()).optional(),
+        searchQuery: z.string().optional(),
+        greenBuildingOnly: z.boolean().optional(),
+        cleanEnergyOnly: z.boolean().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const {
+        constructionTypes,
+        projectStatuses,
+        minCost,
+        maxCost,
+        developers,
+        regions,
+        searchQuery,
+        greenBuildingOnly,
+        cleanEnergyOnly,
+      } = input;
+
+      const projects = await ctx.prisma.majorProject.findMany({
+        where: {
+          latitude: { not: null },
+          longitude: { not: null },
+          ...(constructionTypes && constructionTypes.length > 0 && {
+            constructionType: { in: constructionTypes },
+          }),
+          ...(projectStatuses && projectStatuses.length > 0 && {
+            projectStatus: { in: projectStatuses },
+          }),
+          ...(minCost !== undefined && { estimatedCost: { gte: minCost } }),
+          ...(maxCost !== undefined && { estimatedCost: { lte: maxCost } }),
+          ...(developers && developers.length > 0 && {
+            developer: { in: developers },
+          }),
+          ...(regions && regions.length > 0 && {
+            region: { in: regions },
+          }),
+          ...(searchQuery && {
+            OR: [
+              { name: { contains: searchQuery } },
+              { developer: { contains: searchQuery } },
+              { municipality: { contains: searchQuery } },
+            ],
+          }),
+          ...(greenBuildingOnly && { greenBuilding: true }),
+          ...(cleanEnergyOnly && { cleanEnergy: true }),
+        },
+        orderBy: { estimatedCost: "desc" },
+      });
+
+      return projects.map((project) => ({
+        ...project,
+        costFormatted: `$${project.estimatedCost}M`,
+      }));
+    }),
+
+  // Get project details
+  getProjectDetails: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const project = await ctx.prisma.majorProject.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!project) {
+        throw new Error("Project not found");
+      }
+
+      return project;
+    }),
+
+  // Get project statistics
+  getProjectStats: publicProcedure
+    .input(
+      z.object({
+        constructionTypes: z.array(z.string()).optional(),
+        projectStatuses: z.array(z.string()).optional(),
+        minCost: z.number().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const { constructionTypes, projectStatuses, minCost } = input;
+
+      const where = {
+        ...(constructionTypes && constructionTypes.length > 0 && {
+          constructionType: { in: constructionTypes },
+        }),
+        ...(projectStatuses && projectStatuses.length > 0 && {
+          projectStatus: { in: projectStatuses },
+        }),
+        ...(minCost !== undefined && { estimatedCost: { gte: minCost } }),
+      };
+
+      // Total stats
+      const projects = await ctx.prisma.majorProject.findMany({ where });
+      const totalProjects = projects.length;
+      const totalValue = projects.reduce((sum, p) => sum + p.estimatedCost, 0);
+
+      // By status
+      const byStatus = await ctx.prisma.majorProject.groupBy({
+        by: ["projectStatus"],
+        where,
+        _count: true,
+        _sum: { estimatedCost: true },
+      });
+
+      // By construction type
+      const byType = await ctx.prisma.majorProject.groupBy({
+        by: ["constructionType"],
+        where,
+        _count: true,
+        _sum: { estimatedCost: true },
+      });
+
+      // By region
+      const byRegion = await ctx.prisma.majorProject.groupBy({
+        by: ["region"],
+        where,
+        _count: true,
+        _sum: { estimatedCost: true },
+      });
+
+      // Top developers
+      const developerCounts: Record<string, { count: number; totalValue: number }> = {};
+      projects.forEach((p) => {
+        if (!developerCounts[p.developer]) {
+          developerCounts[p.developer] = { count: 0, totalValue: 0 };
+        }
+        developerCounts[p.developer].count++;
+        developerCounts[p.developer].totalValue += p.estimatedCost;
+      });
+
+      const topDevelopers = Object.entries(developerCounts)
+        .map(([name, data]) => ({ name, ...data }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 15);
+
+      // Top projects by value
+      const topProjects = projects
+        .sort((a, b) => b.estimatedCost - a.estimatedCost)
+        .slice(0, 10)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          developer: p.developer,
+          estimatedCost: p.estimatedCost,
+          constructionType: p.constructionType,
+          projectStatus: p.projectStatus,
+        }));
+
+      return {
+        totalProjects,
+        totalValue,
+        avgValue: totalProjects > 0 ? totalValue / totalProjects : 0,
+        byStatus: byStatus.map((s) => ({
+          status: s.projectStatus,
+          count: s._count,
+          totalValue: s._sum.estimatedCost || 0,
+        })),
+        byType: byType.map((t) => ({
+          type: t.constructionType,
+          count: t._count,
+          totalValue: t._sum.estimatedCost || 0,
+        })),
+        byRegion: byRegion.map((r) => ({
+          region: r.region,
+          count: r._count,
+          totalValue: r._sum.estimatedCost || 0,
+        })),
+        topDevelopers,
+        topProjects,
+      };
+    }),
+
+  // Search projects
+  searchProjects: publicProcedure
+    .input(
+      z.object({
+        query: z.string(),
+        limit: z.number().default(20),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const { query, limit } = input;
+
+      if (!query || query.length < 2) {
+        return [];
+      }
+
+      return ctx.prisma.majorProject.findMany({
+        where: {
+          OR: [
+            { name: { contains: query } },
+            { developer: { contains: query } },
+            { municipality: { contains: query } },
+          ],
+        },
+        orderBy: { estimatedCost: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          developer: true,
+          estimatedCost: true,
+          constructionType: true,
+          projectStatus: true,
+          municipality: true,
+          latitude: true,
+          longitude: true,
+        },
+      });
+    }),
+
+  // Get filter options for projects
+  getProjectFilterOptions: publicProcedure.query(async ({ ctx }) => {
+    // Get unique construction types
+    const types = await ctx.prisma.majorProject.findMany({
+      select: { constructionType: true },
+      distinct: ["constructionType"],
+    });
+
+    // Get unique statuses
+    const statuses = await ctx.prisma.majorProject.findMany({
+      select: { projectStatus: true },
+      distinct: ["projectStatus"],
+    });
+
+    // Get unique regions
+    const regions = await ctx.prisma.majorProject.findMany({
+      select: { region: true },
+      distinct: ["region"],
+    });
+
+    // Get top developers
+    const developerCounts: Record<string, number> = {};
+    const projects = await ctx.prisma.majorProject.findMany({
+      select: { developer: true },
+    });
+    projects.forEach((p) => {
+      developerCounts[p.developer] = (developerCounts[p.developer] || 0) + 1;
+    });
+
+    const topDevelopers = Object.entries(developerCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 30)
+      .map(([name, count]) => ({ name, count }));
+
+    // Cost range
+    const costStats = await ctx.prisma.majorProject.aggregate({
+      _min: { estimatedCost: true },
+      _max: { estimatedCost: true },
+    });
+
+    return {
+      constructionTypes: types.map((t) => t.constructionType),
+      projectStatuses: statuses.map((s) => s.projectStatus),
+      regions: regions.map((r) => r.region),
+      topDevelopers,
+      costRange: {
+        min: costStats._min.estimatedCost || 0,
+        max: costStats._max.estimatedCost || 0,
+      },
+    };
+  }),
 });
 
 export type AppRouter = typeof appRouter;

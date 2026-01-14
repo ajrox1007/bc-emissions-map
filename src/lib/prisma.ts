@@ -7,7 +7,14 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient(): PrismaClient {
-  // Check if we're in production with Turso
+  // In development, always use local SQLite
+  if (process.env.NODE_ENV === "development") {
+    return new PrismaClient({
+      log: ["error", "warn"],
+    });
+  }
+  
+  // In production, use Turso if credentials are available
   if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
     const libsql = createClient({
       url: process.env.TURSO_DATABASE_URL,
@@ -21,9 +28,9 @@ function createPrismaClient(): PrismaClient {
     });
   }
 
-  // Local development with SQLite file
+  // Fallback to SQLite
   return new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+    log: ["error"],
   });
 }
 

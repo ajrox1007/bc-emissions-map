@@ -10,6 +10,7 @@
     "lint": "eslint",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-mpi": "tsx prisma/seed-mpi.ts",
     "db:studio": "prisma studio",
     "db:seed-turso": "tsx scripts/seed-turso.ts"
   },

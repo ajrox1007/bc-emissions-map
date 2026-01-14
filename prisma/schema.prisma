@@ -64,3 +64,45 @@ model EmissionsData {
   @@index([subSector])
   @@index([year])
 }
+
+// BC Major Projects Inventory
+model MajorProject {
+  id                    String   @id @default(uuid())
+  projectId             Int      @unique  // Original PROJECT_ID from MPI
+  name                  String
+  description           String?
+  estimatedCost         Float    // In millions CAD
+  updateActivity        String?
+  constructionType      String   // Infrastructure, Residential, Institutional, Industrial, Commercial
+  constructionSubtype   String?
+  projectType           String   // Utilities, Residential, Commercial, etc.
+  region                String
+  municipality          String?
+  latitude              Float?
+  longitude             Float?
+  developer             String
+  architect             String?
+  projectStatus         String   // Construction started, Proposed, Completed, On hold
+  projectStage          String?
+  categoryName          String?
+  publicFunding         Boolean  @default(false)
+  provincialFunding     Boolean  @default(false)
+  federalFunding        Boolean  @default(false)
+  municipalFunding      Boolean  @default(false)
+  otherPublicFunding    Boolean  @default(false)
+  greenBuilding         Boolean  @default(false)
+  cleanEnergy           Boolean  @default(false)
+  indigenous            Boolean  @default(false)
+  startDate             String?
+  completionDate        String?
+  telephone             String?
+  firstEntryDate        DateTime?
+  lastUpdate            DateTime?
+  createdAt             DateTime @default(now())
+
+  @@index([projectStatus])
+  @@index([constructionType])
+  @@index([developer])
+  @@index([estimatedCost])
+  @@index([region])
+}
