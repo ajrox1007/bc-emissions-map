@@ -3,12 +3,15 @@
 import { motion } from "framer-motion";
 
 type Segment = "Res" | "CSMI" | "MIXED";
+type EnergySourceFilter = "all" | "fossilHeavy" | "electricHeavy" | "electricDominant";
 
 interface FilterControlsProps {
   selectedSegments: Segment[];
   onSegmentsChange: (segments: Segment[]) => void;
   threshold: number;
   onThresholdChange: (threshold: number) => void;
+  energySourceFilter: EnergySourceFilter;
+  onEnergySourceChange: (filter: EnergySourceFilter) => void;
   onReset: () => void;
 }
 
@@ -27,11 +30,20 @@ function formatThreshold(value: number): string {
   return value.toString();
 }
 
+const ENERGY_FILTERS: { id: EnergySourceFilter; label: string; description: string }[] = [
+  { id: "all", label: "All Sources", description: "Show all communities" },
+  { id: "fossilHeavy", label: "Fossil Fuel Heavy", description: "Gas/Oil > 50% of emissions" },
+  { id: "electricHeavy", label: "Electric Heavy", description: "Electric ≥ 50% of emissions" },
+  { id: "electricDominant", label: "Electric Dominant", description: "Electric is #1 source" },
+];
+
 export default function FilterControls({
   selectedSegments,
   onSegmentsChange,
   threshold,
   onThresholdChange,
+  energySourceFilter,
+  onEnergySourceChange,
   onReset,
 }: FilterControlsProps) {
   const handleSegmentToggle = (segment: Segment) => {
@@ -88,6 +100,38 @@ export default function FilterControls({
                   {segment.label}
                 </div>
                 <div className="text-xs text-gray-500">{segment.description}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="divider" />
+
+      {/* Energy Source Filter */}
+      <div>
+        <h4 className="text-xs uppercase tracking-wider font-semibold mb-3">
+          Energy Source
+        </h4>
+
+        <div className="space-y-2">
+          {ENERGY_FILTERS.map((filter) => (
+            <label
+              key={filter.id}
+              className="flex items-start gap-3 cursor-pointer group"
+            >
+              <input
+                type="radio"
+                name="energySource"
+                checked={energySourceFilter === filter.id}
+                onChange={() => onEnergySourceChange(filter.id)}
+                className="mt-0.5"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-sm group-hover:underline">
+                  {filter.label}
+                </div>
+                <div className="text-xs text-gray-500">{filter.description}</div>
               </div>
             </label>
           ))}

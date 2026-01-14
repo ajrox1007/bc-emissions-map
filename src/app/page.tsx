@@ -9,12 +9,15 @@ import CommunityDetail from "@/components/CommunityDetail";
 import Dashboard from "@/components/Dashboard";
 import ConversionOpportunities from "@/components/ConversionOpportunities";
 import RebateCalculator from "@/components/RebateCalculator";
+import SearchBar from "@/components/SearchBar";
 
 type Segment = "Res" | "CSMI" | "MIXED";
 type ViewMode = "map" | "dashboard" | "opportunities" | "rebates";
+type EnergySourceFilter = "all" | "fossilHeavy" | "electricHeavy" | "electricDominant";
 
 const DEFAULT_THRESHOLD = 10000;
 const DEFAULT_SEGMENTS: Segment[] = ["Res", "CSMI", "MIXED"];
+const DEFAULT_ENERGY_FILTER: EnergySourceFilter = "all";
 
 const VIEW_TABS: { id: ViewMode; label: string; description: string }[] = [
   { id: "map", label: "Map", description: "Interactive emissions map" },
@@ -28,16 +31,19 @@ export default function Home() {
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("map");
+  const [energySourceFilter, setEnergySourceFilter] = useState<EnergySourceFilter>(DEFAULT_ENERGY_FILTER);
 
   const { data: communities, isLoading } = trpc.getFilteredCommunities.useQuery({
     segments: selectedSegments.length > 0 ? selectedSegments : undefined,
     threshold,
+    energySourceFilter: energySourceFilter !== "all" ? energySourceFilter : undefined,
   });
 
   const handleReset = useCallback(() => {
     setSelectedSegments(DEFAULT_SEGMENTS);
     setThreshold(DEFAULT_THRESHOLD);
     setSelectedCommunityId(null);
+    setEnergySourceFilter(DEFAULT_ENERGY_FILTER);
   }, []);
 
   const handleCommunitySelect = useCallback((communityOrId: { id: string } | string) => {
@@ -106,6 +112,8 @@ export default function Home() {
               onSegmentsChange={setSelectedSegments}
               threshold={threshold}
               onThresholdChange={setThreshold}
+              energySourceFilter={energySourceFilter}
+              onEnergySourceChange={setEnergySourceFilter}
               onReset={handleReset}
             />
           </aside>
@@ -122,6 +130,14 @@ export default function Home() {
                 exit={{ opacity: 0 }}
                 className="flex-1 relative"
               >
+                {/* Search Bar Overlay on Map */}
+                <div className="absolute top-4 left-4 right-4 md:left-4 md:right-auto md:w-80 z-10">
+                  <SearchBar
+                    onSelectCommunity={handleCommunitySelectById}
+                    placeholder="Search communities on map..."
+                  />
+                </div>
+
                 {isLoading ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
                     <div className="text-center">
@@ -177,7 +193,11 @@ export default function Home() {
                 exit={{ opacity: 0 }}
                 className="flex-1 overflow-y-auto p-6"
               >
-                <Dashboard segments={selectedSegments} threshold={threshold} />
+                <Dashboard 
+                  segments={selectedSegments} 
+                  threshold={threshold} 
+                  onSelectCommunity={handleCommunitySelectById}
+                />
               </motion.div>
             )}
 
@@ -222,6 +242,7 @@ export default function Home() {
                 <CommunityDetail
                   communityId={selectedCommunityId}
                   threshold={threshold}
+                  selectedSegments={selectedSegments}
                   onClose={() => setSelectedCommunityId(null)}
                 />
               </div>

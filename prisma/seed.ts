@@ -232,8 +232,8 @@ interface ExcelRow {
   ENERGY_TYPE: string;
   ENERGY_UNIT: string;
   SUB_SECTOR: string;
-  CONSUMPTION_TOTAL: number;
-  CONNECTION_TOTAL: number;
+  " CONSUMPTION_TOTAL ": number;
+  " CONNECTION_TOTAL ": number;
   "EMISSIONS NET IMPORTS (TCO2e)": number | string;
   "Look up": string;
 }
@@ -286,26 +286,62 @@ async function main() {
   for (const [, communityData] of communityMap) {
     const coords = BC_COORDINATES[communityData.orgName];
     
-    // Calculate aggregated emissions by segment
+    // Calculate aggregated emissions and connections by segment
     let resEmissions = 0;
     let csmiEmissions = 0;
     let mixedEmissions = 0;
+    let resConnections = 0;
+    let csmiConnections = 0;
+    let mixedConnections = 0;
+    // Emissions by energy type
+    let electricEmissions = 0;
+    let gasEmissions = 0;
+    let oilEmissions = 0;
+    let propaneEmissions = 0;
+    let woodEmissions = 0;
+    let otherEmissions = 0;
 
     for (const record of communityData.records) {
       const emissions = typeof record["EMISSIONS NET IMPORTS (TCO2e)"] === "number"
         ? record["EMISSIONS NET IMPORTS (TCO2e)"]
         : parseFloat(String(record["EMISSIONS NET IMPORTS (TCO2e)"])) || 0;
 
+      const connections = typeof record[" CONNECTION_TOTAL "] === "number"
+        ? Math.round(record[" CONNECTION_TOTAL "])
+        : Math.round(parseFloat(String(record[" CONNECTION_TOTAL "])) || 0);
+
       if (record.SUB_SECTOR === "Res") {
         resEmissions += emissions;
+        resConnections += connections;
       } else if (record.SUB_SECTOR === "CSMI") {
         csmiEmissions += emissions;
+        csmiConnections += connections;
       } else if (record.SUB_SECTOR === "MIXED") {
         mixedEmissions += emissions;
+        mixedConnections += connections;
+      }
+
+      // Track emissions by energy type
+      // ELEC = Electricity, NG = Natural Gas, RNG = Renewable NG, 
+      // PPRO = Propane, WOOD = Wood, OIL = Heating Oil, DPRO = Diesel/Propane
+      const energyType = record.ENERGY_TYPE;
+      if (energyType === "ELEC") {
+        electricEmissions += emissions;
+      } else if (energyType === "NG" || energyType === "RNG") {
+        gasEmissions += emissions;
+      } else if (energyType === "OIL") {
+        oilEmissions += emissions;
+      } else if (energyType === "PPRO" || energyType === "DPRO") {
+        propaneEmissions += emissions;
+      } else if (energyType === "WOOD") {
+        woodEmissions += emissions;
+      } else {
+        otherEmissions += emissions;
       }
     }
 
     const totalEmissions = resEmissions + csmiEmissions + mixedEmissions;
+    const totalConnections = resConnections + csmiConnections + mixedConnections;
 
     // Create community
     const community = await prisma.community.create({
@@ -318,6 +354,16 @@ async function main() {
         resEmissions,
         csmiEmissions,
         mixedEmissions,
+        resConnections,
+        csmiConnections,
+        mixedConnections,
+        totalConnections,
+        electricEmissions,
+        gasEmissions,
+        oilEmissions,
+        propaneEmissions,
+        woodEmissions,
+        otherEmissions,
       },
     });
     communitiesCreated++;
@@ -328,13 +374,13 @@ async function main() {
         ? record["EMISSIONS NET IMPORTS (TCO2e)"]
         : parseFloat(String(record["EMISSIONS NET IMPORTS (TCO2e)"])) || 0;
 
-      const consumption = typeof record.CONSUMPTION_TOTAL === "number"
-        ? record.CONSUMPTION_TOTAL
-        : parseFloat(String(record.CONSUMPTION_TOTAL)) || 0;
+      const consumption = typeof record[" CONSUMPTION_TOTAL "] === "number"
+        ? record[" CONSUMPTION_TOTAL "]
+        : parseFloat(String(record[" CONSUMPTION_TOTAL "])) || 0;
 
-      const connections = typeof record.CONNECTION_TOTAL === "number"
-        ? Math.round(record.CONNECTION_TOTAL)
-        : null;
+      const connections = typeof record[" CONNECTION_TOTAL "] === "number"
+        ? Math.round(record[" CONNECTION_TOTAL "])
+        : Math.round(parseFloat(String(record[" CONNECTION_TOTAL "])) || 0);
 
       await prisma.emissionsData.create({
         data: {

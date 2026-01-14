@@ -2,13 +2,18 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "file:./dev.db"
 }
+
+// For Turso/LibSQL in production, set these environment variables in Vercel:
+// TURSO_DATABASE_URL=libsql://your-db-name-your-username.turso.io
+// TURSO_AUTH_TOKEN=your-auth-token
 
 model Community {
   id              String   @id @default(uuid())
@@ -20,6 +25,18 @@ model Community {
   resEmissions    Float    @default(0)
   csmiEmissions   Float    @default(0)
   mixedEmissions  Float    @default(0)
+  // Connection counts per sector
+  resConnections  Int      @default(0)
+  csmiConnections Int      @default(0)
+  mixedConnections Int     @default(0)
+  totalConnections Int     @default(0)
+  // Emissions by energy type
+  electricEmissions Float   @default(0)
+  gasEmissions      Float   @default(0)
+  oilEmissions      Float   @default(0)
+  propaneEmissions  Float   @default(0)
+  woodEmissions     Float   @default(0)
+  otherEmissions    Float   @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

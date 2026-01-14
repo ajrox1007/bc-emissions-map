@@ -2,12 +2,14 @@
 
 import { motion } from "framer-motion";
 import { trpc } from "@/lib/trpc";
+import SearchBar from "./SearchBar";
 
 type Segment = "Res" | "CSMI" | "MIXED";
 
 interface DashboardProps {
   segments: Segment[];
   threshold: number;
+  onSelectCommunity?: (communityId: string) => void;
 }
 
 function formatEmissions(value: number): string {
@@ -60,46 +62,69 @@ function StatCard({
   );
 }
 
+function formatNumber(value: number): string {
+  if (value >= 1000000) {
+    return `${(value / 1000000).toFixed(2)}M`;
+  } else if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}K`;
+  }
+  return value.toLocaleString();
+}
+
 function SegmentBar({
   label,
   value,
   total,
   color,
+  connections,
+  avgPerConnection,
 }: {
   label: string;
   value: number;
   total: number;
   color: string;
+  connections?: number;
+  avgPerConnection?: number;
 }) {
   const percentage = total > 0 ? (value / total) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-4">
-      <div className="w-24 text-xs uppercase tracking-wider text-gray-500 truncate">
-        {label}
-      </div>
-      <div className="flex-1 h-6 bg-gray-100 border border-black relative">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${percentage}%` }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-          className="h-full absolute left-0 top-0"
-          style={{ backgroundColor: color }}
-        />
-        <div className="absolute inset-0 flex items-center justify-end pr-2">
-          <span className="data-value text-xs font-medium">
-            {percentage.toFixed(1)}%
-          </span>
+    <div className="space-y-1">
+      <div className="flex items-center gap-4">
+        <div className="w-24 text-xs uppercase tracking-wider text-gray-500 truncate">
+          {label}
+        </div>
+        <div className="flex-1 h-6 bg-gray-100 border border-black relative">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${percentage}%` }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="h-full absolute left-0 top-0"
+            style={{ backgroundColor: color }}
+          />
+          <div className="absolute inset-0 flex items-center justify-end pr-2">
+            <span className="data-value text-xs font-medium">
+              {percentage.toFixed(1)}%
+            </span>
+          </div>
+        </div>
+        <div className="w-24 text-right">
+          <span className="data-value text-xs">{formatEmissions(value)}</span>
         </div>
       </div>
-      <div className="w-24 text-right">
-        <span className="data-value text-xs">{formatEmissions(value)}</span>
-      </div>
+      {connections !== undefined && (
+        <div className="flex items-center gap-4 ml-28 text-xs text-gray-400">
+          <span>{formatNumber(connections)} connections</span>
+          {avgPerConnection !== undefined && avgPerConnection > 0 && (
+            <span>• {avgPerConnection.toFixed(2)} tCO₂e avg</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-export default function Dashboard({ segments, threshold }: DashboardProps) {
+export default function Dashboard({ segments, threshold, onSelectCommunity }: DashboardProps) {
   const { data: stats, isLoading } = trpc.getSummaryStats.useQuery({
     segments: segments.length > 0 ? segments : undefined,
     threshold,
@@ -133,6 +158,20 @@ export default function Dashboard({ segments, threshold }: DashboardProps) {
       animate={{ opacity: 1 }}
       className="space-y-6"
     >
+      {/* Search Bar */}
+      {onSelectCommunity && (
+        <div className="mb-6">
+          <h4 className="text-xs uppercase tracking-wider font-semibold mb-3">
+            Search Communities
+          </h4>
+          <SearchBar
+            onSelectCommunity={onSelectCommunity}
+            placeholder="Search for a community..."
+            className="max-w-md"
+          />
+        </div>
+      )}
+
       {/* Key Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
@@ -170,27 +209,71 @@ export default function Dashboard({ segments, threshold }: DashboardProps) {
           Emissions by Segment
         </h4>
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           <SegmentBar
             label="Residential"
             value={stats.segmentTotals.residential}
             total={segmentTotal}
             color="var(--color-green)"
+            connections={stats.connectionTotals?.residential}
+            avgPerConnection={stats.avgEmissionsPerConnection?.residential}
           />
           <SegmentBar
             label="Commercial"
             value={stats.segmentTotals.commercial}
             total={segmentTotal}
             color="var(--color-red)"
+            connections={stats.connectionTotals?.commercial}
+            avgPerConnection={stats.avgEmissionsPerConnection?.commercial}
           />
           <SegmentBar
             label="Mixed"
             value={stats.segmentTotals.mixed}
             total={segmentTotal}
             color="var(--color-yellow)"
+            connections={stats.connectionTotals?.mixed}
+            avgPerConnection={stats.avgEmissionsPerConnection?.mixed}
           />
         </div>
       </div>
+
+      {/* Connection Summary */}
+      {stats.connectionTotals && (
+        <>
+          <div className="divider" />
+          <div>
+            <h4 className="text-xs uppercase tracking-wider font-semibold mb-4">
+              Connection Summary
+            </h4>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard
+                label="Total Connections"
+                value={formatNumber(stats.connectionTotals.total)}
+                subtext="all sectors"
+                delay={0}
+              />
+              <StatCard
+                label="Residential"
+                value={formatNumber(stats.connectionTotals.residential)}
+                subtext={`${stats.avgEmissionsPerConnection?.residential?.toFixed(2) || '0'} tCO₂e avg`}
+                delay={0.05}
+              />
+              <StatCard
+                label="Commercial"
+                value={formatNumber(stats.connectionTotals.commercial)}
+                subtext={`${stats.avgEmissionsPerConnection?.commercial?.toFixed(2) || '0'} tCO₂e avg`}
+                delay={0.1}
+              />
+              <StatCard
+                label="Mixed"
+                value={formatNumber(stats.connectionTotals.mixed)}
+                subtext={`${stats.avgEmissionsPerConnection?.mixed?.toFixed(2) || '0'} tCO₂e avg`}
+                delay={0.15}
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="divider" />
 

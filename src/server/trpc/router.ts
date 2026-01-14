@@ -28,7 +28,7 @@ export const appRouter = router({
     });
   }),
 
-  // Get filtered communities by segment and threshold
+  // Get filtered communities by segment, threshold, and energy source
   getFilteredCommunities: publicProcedure
     .input(
       z.object({
@@ -36,15 +36,22 @@ export const appRouter = router({
         threshold: z.number().optional(),
         minEmissions: z.number().optional(),
         maxEmissions: z.number().optional(),
+        energySourceFilter: z.enum(["all", "fossilHeavy", "electricHeavy", "electricDominant"]).optional(),
+        searchQuery: z.string().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
-      const { segments, threshold = 10000, minEmissions, maxEmissions } = input;
+      const { segments, threshold = 10000, minEmissions, maxEmissions, energySourceFilter, searchQuery } = input;
 
       const communities = await ctx.prisma.community.findMany({
         where: {
           latitude: { not: null },
           longitude: { not: null },
+          ...(searchQuery ? {
+            orgName: {
+              contains: searchQuery,
+            },
+          } : {}),
         },
         orderBy: { totalEmissions: "desc" },
       });
@@ -60,6 +67,27 @@ export const appRouter = router({
           if (segments.includes("MIXED")) filteredEmissions += community.mixedEmissions;
         }
 
+        // Calculate connections based on selected segments
+        let filteredConnections = community.totalConnections;
+        if (segments && segments.length > 0) {
+          filteredConnections = 0;
+          if (segments.includes("Res")) filteredConnections += community.resConnections;
+          if (segments.includes("CSMI")) filteredConnections += community.csmiConnections;
+          if (segments.includes("MIXED")) filteredConnections += community.mixedConnections;
+        }
+
+        // Calculate average emissions per connection
+        const avgEmissionsPerConnection = filteredConnections > 0 
+          ? filteredEmissions / filteredConnections 
+          : 0;
+
+        // Calculate fossil vs electric emissions
+        const fossilEmissions = community.gasEmissions + community.oilEmissions + community.propaneEmissions + community.woodEmissions;
+        const electricEmissions = community.electricEmissions;
+        const fossilPercent = community.totalEmissions > 0 
+          ? (fossilEmissions / community.totalEmissions) * 100 
+          : 0;
+
         return {
           id: community.id,
           orgUnit: community.orgUnit,
@@ -70,6 +98,25 @@ export const appRouter = router({
           resEmissions: community.resEmissions,
           csmiEmissions: community.csmiEmissions,
           mixedEmissions: community.mixedEmissions,
+          // Connection data
+          totalConnections: community.totalConnections,
+          resConnections: community.resConnections,
+          csmiConnections: community.csmiConnections,
+          mixedConnections: community.mixedConnections,
+          filteredConnections,
+          avgEmissionsPerConnection,
+          // Energy source data
+          electricEmissions: community.electricEmissions,
+          gasEmissions: community.gasEmissions,
+          oilEmissions: community.oilEmissions,
+          propaneEmissions: community.propaneEmissions,
+          woodEmissions: community.woodEmissions,
+          otherEmissions: community.otherEmissions,
+          fossilEmissions,
+          fossilPercent,
+          // Segment filter info
+          selectedSegments: segments || ["Res", "CSMI", "MIXED"],
+          // Threshold data
           filteredEmissions,
           exceedsThreshold: filteredEmissions > threshold,
           thresholdDiff: filteredEmissions - threshold,
@@ -86,7 +133,62 @@ export const appRouter = router({
         filtered = filtered.filter((c) => c.filteredEmissions <= maxEmissions);
       }
 
+      // Apply energy source filter
+      if (energySourceFilter === "fossilHeavy") {
+        // Fossil fuel emissions > 50% of total
+        filtered = filtered.filter((c) => c.fossilPercent > 50);
+      } else if (energySourceFilter === "electricHeavy") {
+        // Electric emissions >= 50% of total
+        filtered = filtered.filter((c) => c.fossilPercent <= 50);
+      } else if (energySourceFilter === "electricDominant") {
+        // Electric is the highest single source (greater than each individual fossil source)
+        filtered = filtered.filter((c) => 
+          c.electricEmissions > c.gasEmissions &&
+          c.electricEmissions > c.oilEmissions &&
+          c.electricEmissions > c.propaneEmissions &&
+          c.electricEmissions > c.woodEmissions &&
+          c.electricEmissions > c.otherEmissions
+        );
+      }
+
       return filtered;
+    }),
+
+  // Search communities
+  searchCommunities: publicProcedure
+    .input(
+      z.object({
+        query: z.string(),
+        limit: z.number().default(20),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const { query, limit } = input;
+
+      if (!query || query.length < 2) {
+        return [];
+      }
+
+      const communities = await ctx.prisma.community.findMany({
+        where: {
+          orgName: {
+            contains: query,
+          },
+        },
+        orderBy: { totalEmissions: "desc" },
+        take: limit,
+      });
+
+      return communities.map((c) => ({
+        id: c.id,
+        orgName: c.orgName,
+        totalEmissions: c.totalEmissions,
+        resEmissions: c.resEmissions,
+        csmiEmissions: c.csmiEmissions,
+        mixedEmissions: c.mixedEmissions,
+        totalConnections: c.totalConnections,
+        hasLocation: c.latitude !== null && c.longitude !== null,
+      }));
     }),
 
   // Get community details with segment breakdown
@@ -110,20 +212,35 @@ export const appRouter = router({
       const emissionsBySource = community.emissionsData.reduce(
         (acc, data) => {
           if (!acc[data.source]) {
-            acc[data.source] = { res: 0, csmi: 0, mixed: 0, total: 0 };
+            acc[data.source] = { res: 0, csmi: 0, mixed: 0, total: 0, connections: 0 };
           }
           if (data.subSector === "Res") acc[data.source].res += data.emissions;
           if (data.subSector === "CSMI") acc[data.source].csmi += data.emissions;
           if (data.subSector === "MIXED") acc[data.source].mixed += data.emissions;
           acc[data.source].total += data.emissions;
+          acc[data.source].connections += data.connections || 0;
           return acc;
         },
-        {} as Record<string, { res: number; csmi: number; mixed: number; total: number }>
+        {} as Record<string, { res: number; csmi: number; mixed: number; total: number; connections: number }>
       );
+
+      // Calculate average emissions per connection by sector
+      const avgEmissionsPerConnection = {
+        residential: community.resConnections > 0 
+          ? community.resEmissions / community.resConnections 
+          : 0,
+        commercial: community.csmiConnections > 0 
+          ? community.csmiEmissions / community.csmiConnections 
+          : 0,
+        mixed: community.mixedConnections > 0 
+          ? community.mixedEmissions / community.mixedConnections 
+          : 0,
+      };
 
       return {
         ...community,
         emissionsBySource,
+        avgEmissionsPerConnection,
       };
     }),
 
@@ -180,6 +297,27 @@ export const appRouter = router({
         mixed: communities.reduce((sum, c) => sum + c.mixedEmissions, 0),
       };
 
+      // Connection totals by segment
+      const connectionTotals = {
+        residential: communities.reduce((sum, c) => sum + c.resConnections, 0),
+        commercial: communities.reduce((sum, c) => sum + c.csmiConnections, 0),
+        mixed: communities.reduce((sum, c) => sum + c.mixedConnections, 0),
+        total: communities.reduce((sum, c) => sum + c.totalConnections, 0),
+      };
+
+      // Average emissions per connection by segment
+      const avgEmissionsPerConnection = {
+        residential: connectionTotals.residential > 0 
+          ? segmentTotals.residential / connectionTotals.residential 
+          : 0,
+        commercial: connectionTotals.commercial > 0 
+          ? segmentTotals.commercial / connectionTotals.commercial 
+          : 0,
+        mixed: connectionTotals.mixed > 0 
+          ? segmentTotals.mixed / connectionTotals.mixed 
+          : 0,
+      };
+
       // Average by segment
       const segmentAverages = {
         residential: totalCommunities > 0 ? segmentTotals.residential / totalCommunities : 0,
@@ -206,6 +344,8 @@ export const appRouter = router({
         percentExceeding,
         segmentTotals,
         segmentAverages,
+        connectionTotals,
+        avgEmissionsPerConnection,
         top10,
         threshold,
       };
