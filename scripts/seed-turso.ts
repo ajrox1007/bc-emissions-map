@@ -187,10 +187,15 @@ async function main() {
   console.log("🚀 Starting Turso database seed...");
   console.log(`📡 Connecting to: ${TURSO_URL}`);
   
-  // Create tables in Turso
+  // Drop and recreate tables in Turso with correct schema
   console.log("📋 Creating database schema...");
+  
+  // Drop existing tables first
+  await libsql.execute(`DROP TABLE IF EXISTS EmissionsData`);
+  await libsql.execute(`DROP TABLE IF EXISTS Community`);
+  
   await libsql.execute(`
-    CREATE TABLE IF NOT EXISTS Community (
+    CREATE TABLE Community (
       id TEXT PRIMARY KEY,
       orgUnit TEXT UNIQUE NOT NULL,
       orgName TEXT NOT NULL,
@@ -210,13 +215,13 @@ async function main() {
       propaneEmissions REAL DEFAULT 0,
       woodEmissions REAL DEFAULT 0,
       otherEmissions REAL DEFAULT 0,
-      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
     )
   `);
   
   await libsql.execute(`
-    CREATE TABLE IF NOT EXISTS EmissionsData (
+    CREATE TABLE EmissionsData (
       id TEXT PRIMARY KEY,
       communityId TEXT NOT NULL,
       source TEXT NOT NULL,
@@ -226,7 +231,7 @@ async function main() {
       connections INTEGER,
       emissions REAL NOT NULL,
       year INTEGER NOT NULL,
-      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      createdAt TEXT NOT NULL,
       FOREIGN KEY (communityId) REFERENCES Community(id)
     )
   `);
@@ -237,10 +242,7 @@ async function main() {
   await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_emissions_subSector ON EmissionsData(subSector)`);
   await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_emissions_year ON EmissionsData(year)`);
   
-  // Clear existing data
-  console.log("🗑️  Clearing existing data...");
-  await libsql.execute(`DELETE FROM EmissionsData`);
-  await libsql.execute(`DELETE FROM Community`);
+  console.log("✅ Tables created successfully");
   
   // Find Excel file
   const possiblePaths = [
@@ -369,17 +371,20 @@ async function main() {
   let created = 0;
   let totalRecords = 0;
   
+  const nowISO = new Date().toISOString();
+  
   for (const [_, community] of communityMap) {
     const coords = getCoordinates(community.orgName);
     const communityId = crypto.randomUUID();
     
-    // Insert community
+    // Insert community with ISO date format
     await libsql.execute({
       sql: `INSERT INTO Community (
         id, orgUnit, orgName, latitude, longitude, totalEmissions, resEmissions, csmiEmissions, mixedEmissions,
         resConnections, csmiConnections, mixedConnections, totalConnections,
-        electricEmissions, gasEmissions, oilEmissions, propaneEmissions, woodEmissions, otherEmissions
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        electricEmissions, gasEmissions, oilEmissions, propaneEmissions, woodEmissions, otherEmissions,
+        createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         communityId,
         community.orgUnit,
@@ -400,6 +405,8 @@ async function main() {
         community.propaneEmissions,
         community.woodEmissions,
         community.otherEmissions,
+        nowISO,
+        nowISO,
       ],
     });
     
@@ -416,8 +423,8 @@ async function main() {
         : parseFloat(String(record["EMISSIONS NET IMPORTS (TCO2e)"])) || 0;
       
       await libsql.execute({
-        sql: `INSERT INTO EmissionsData (id, communityId, source, energyType, subSector, consumption, connections, emissions, year)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO EmissionsData (id, communityId, source, energyType, subSector, consumption, connections, emissions, year, createdAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           crypto.randomUUID(),
           communityId,
@@ -428,6 +435,7 @@ async function main() {
           connections,
           emissions,
           record.YEAR,
+          nowISO,
         ],
       });
       totalRecords++;
