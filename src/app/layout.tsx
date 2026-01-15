@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
 import { TRPCProvider } from "@/lib/providers";
 import "./globals.css";
+import "@crayonai/react-ui/styles/index.css";
 
 // Swiss-style typography - clean, geometric sans-serif
 const archivo = Archivo({

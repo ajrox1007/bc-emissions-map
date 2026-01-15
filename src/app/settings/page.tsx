@@ -42,8 +42,9 @@ function formatFileSize(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString("en-CA", {
+function formatDate(date: string | Date): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleDateString("en-CA", {
     year: "numeric",
     month: "short",
     day: "numeric",
