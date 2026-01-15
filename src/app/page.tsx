@@ -42,6 +42,7 @@ export default function Home() {
   const [selectedProjectTypes, setSelectedProjectTypes] = useState<string[]>([]);
   const [selectedProjectStatuses, setSelectedProjectStatuses] = useState<string[]>([]);
   const [projectMinCost, setProjectMinCost] = useState(0);
+  const [projectMaxCost, setProjectMaxCost] = useState(25000); // $25B max
   const [selectedDevelopers, setSelectedDevelopers] = useState<string[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
@@ -58,6 +59,7 @@ export default function Home() {
     constructionTypes: selectedProjectTypes.length > 0 ? selectedProjectTypes : undefined,
     projectStatuses: selectedProjectStatuses.length > 0 ? selectedProjectStatuses : undefined,
     minCost: projectMinCost > 0 ? projectMinCost : undefined,
+    maxCost: projectMaxCost < 25000 ? projectMaxCost : undefined,
     developers: selectedDevelopers.length > 0 ? selectedDevelopers : undefined,
     searchQuery: projectSearchQuery || undefined,
   });
@@ -67,6 +69,7 @@ export default function Home() {
     constructionTypes: selectedProjectTypes.length > 0 ? selectedProjectTypes : undefined,
     projectStatuses: selectedProjectStatuses.length > 0 ? selectedProjectStatuses : undefined,
     minCost: projectMinCost > 0 ? projectMinCost : undefined,
+    maxCost: projectMaxCost < 25000 ? projectMaxCost : undefined,
   });
 
   const handleReset = useCallback(() => {
@@ -80,6 +83,7 @@ export default function Home() {
     setSelectedProjectTypes([]);
     setSelectedProjectStatuses([]);
     setProjectMinCost(0);
+    setProjectMaxCost(25000);
     setSelectedDevelopers([]);
     setSelectedProjectId(null);
     setProjectSearchQuery("");
@@ -170,7 +174,11 @@ export default function Home() {
               selectedStatuses={selectedProjectStatuses}
               onStatusesChange={setSelectedProjectStatuses}
               minCost={projectMinCost}
-              onMinCostChange={setProjectMinCost}
+              maxCost={projectMaxCost}
+              onCostRangeChange={(min, max) => {
+                setProjectMinCost(min);
+                setProjectMaxCost(max);
+              }}
               selectedDevelopers={selectedDevelopers}
               onDevelopersChange={setSelectedDevelopers}
               onReset={handleProjectReset}

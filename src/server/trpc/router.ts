@@ -890,10 +890,11 @@ export const appRouter = router({
         constructionTypes: z.array(z.string()).optional(),
         projectStatuses: z.array(z.string()).optional(),
         minCost: z.number().optional(),
+        maxCost: z.number().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
-      const { constructionTypes, projectStatuses, minCost } = input;
+      const { constructionTypes, projectStatuses, minCost, maxCost } = input;
 
       const where = {
         ...(constructionTypes && constructionTypes.length > 0 && {
@@ -903,6 +904,7 @@ export const appRouter = router({
           projectStatus: { in: projectStatuses },
         }),
         ...(minCost !== undefined && { estimatedCost: { gte: minCost } }),
+        ...(maxCost !== undefined && { estimatedCost: { lte: maxCost } }),
       };
 
       // Total stats

@@ -10,10 +10,20 @@ interface ProjectFiltersProps {
   selectedStatuses: string[];
   onStatusesChange: (statuses: string[]) => void;
   minCost: number;
-  onMinCostChange: (cost: number) => void;
+  maxCost: number;
+  onCostRangeChange: (min: number, max: number) => void;
   selectedDevelopers: string[];
   onDevelopersChange: (developers: string[]) => void;
   onReset: () => void;
+}
+
+const MAX_PROJECT_VALUE = 25000; // $25B in millions
+
+function formatCostLabel(value: number): string {
+  if (value >= 1000) {
+    return `$${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}B`;
+  }
+  return `$${value}M`;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -30,7 +40,8 @@ export default function ProjectFilters({
   selectedStatuses,
   onStatusesChange,
   minCost,
-  onMinCostChange,
+  maxCost,
+  onCostRangeChange,
   selectedDevelopers,
   onDevelopersChange,
   onReset,
@@ -62,14 +73,22 @@ export default function ProjectFilters({
     }
   };
 
-  const costOptions = [
-    { value: 0, label: "All Projects" },
-    { value: 50, label: "$50M+" },
-    { value: 100, label: "$100M+" },
-    { value: 250, label: "$250M+" },
-    { value: 500, label: "$500M+" },
-    { value: 1000, label: "$1B+" },
-  ];
+  const handleMinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newMin = parseInt(e.target.value);
+    if (newMin <= maxCost) {
+      onCostRangeChange(newMin, maxCost);
+    }
+  };
+
+  const handleMaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newMax = parseInt(e.target.value);
+    if (newMax >= minCost) {
+      onCostRangeChange(minCost, newMax);
+    }
+  };
+
+  const minPercent = (minCost / MAX_PROJECT_VALUE) * 100;
+  const maxPercent = (maxCost / MAX_PROJECT_VALUE) * 100;
 
   const displayedDevelopers = showAllDevelopers
     ? filterOptions?.topDevelopers || []
@@ -145,29 +164,101 @@ export default function ProjectFilters({
           </div>
         </div>
 
-        {/* Minimum Project Value */}
+        {/* Project Value Range */}
         <div>
           <h4 className="text-xs uppercase tracking-wider font-semibold mb-3">
-            Minimum Value
+            Project Value Range
           </h4>
-          <div className="space-y-2">
-            {costOptions.map((option) => (
-              <label
-                key={option.value}
-                className="flex items-center gap-3 cursor-pointer group"
-              >
-                <input
-                  type="radio"
-                  name="minCost"
-                  checked={minCost === option.value}
-                  onChange={() => onMinCostChange(option.value)}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm group-hover:font-medium">
-                  {option.label}
-                </span>
-              </label>
-            ))}
+          
+          {/* Value display */}
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-sm font-medium">{formatCostLabel(minCost)}</span>
+            <span className="text-xs text-gray-400">to</span>
+            <span className="text-sm font-medium">
+              {maxCost >= MAX_PROJECT_VALUE ? "Any" : formatCostLabel(maxCost)}
+            </span>
+          </div>
+
+          {/* Dual range slider */}
+          <div className="relative h-6 mb-2">
+            {/* Track background */}
+            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-2 bg-gray-200 rounded-full" />
+            
+            {/* Active track */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 h-2 bg-black rounded-full"
+              style={{
+                left: `${minPercent}%`,
+                right: `${100 - maxPercent}%`,
+              }}
+            />
+
+            {/* Min slider */}
+            <input
+              type="range"
+              min={0}
+              max={MAX_PROJECT_VALUE}
+              step={50}
+              value={minCost}
+              onChange={handleMinChange}
+              className="absolute w-full h-6 opacity-0 cursor-pointer z-20"
+              style={{ pointerEvents: "auto" }}
+            />
+
+            {/* Max slider */}
+            <input
+              type="range"
+              min={0}
+              max={MAX_PROJECT_VALUE}
+              step={50}
+              value={maxCost}
+              onChange={handleMaxChange}
+              className="absolute w-full h-6 opacity-0 cursor-pointer z-20"
+              style={{ pointerEvents: "auto" }}
+            />
+
+            {/* Min thumb */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-black rounded-full shadow pointer-events-none z-10"
+              style={{ left: `calc(${minPercent}% - 8px)` }}
+            />
+
+            {/* Max thumb */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-black rounded-full shadow pointer-events-none z-10"
+              style={{ left: `calc(${maxPercent}% - 8px)` }}
+            />
+          </div>
+
+          {/* Scale labels */}
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <span>$0</span>
+            <span>$5B</span>
+            <span>$10B</span>
+            <span>$15B</span>
+            <span>$25B+</span>
+          </div>
+
+          {/* Quick presets */}
+          <div className="grid grid-cols-3 gap-1 mt-4">
+            <button
+              onClick={() => onCostRangeChange(0, MAX_PROJECT_VALUE)}
+              className={`btn text-xs py-1 ${minCost === 0 && maxCost === MAX_PROJECT_VALUE ? "btn-primary" : ""}`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => onCostRangeChange(100, 500)}
+              className={`btn text-xs py-1 ${minCost === 100 && maxCost === 500 ? "btn-primary" : ""}`}
+            >
+              $100-500M
+            </button>
+            <button
+              onClick={() => onCostRangeChange(1000, MAX_PROJECT_VALUE)}
+              className={`btn text-xs py-1 ${minCost === 1000 && maxCost === MAX_PROJECT_VALUE ? "btn-primary" : ""}`}
+            >
+              $1B+
+            </button>
           </div>
         </div>
 
@@ -218,6 +309,7 @@ export default function ProjectFilters({
         {(selectedTypes.length > 0 ||
           selectedStatuses.length > 0 ||
           minCost > 0 ||
+          maxCost < MAX_PROJECT_VALUE ||
           selectedDevelopers.length > 0) && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -243,9 +335,9 @@ export default function ProjectFilters({
                   {status}
                 </span>
               ))}
-              {minCost > 0 && (
+              {(minCost > 0 || maxCost < MAX_PROJECT_VALUE) && (
                 <span className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded">
-                  ${minCost >= 1000 ? `${minCost / 1000}B` : `${minCost}M`}+
+                  {formatCostLabel(minCost)} - {maxCost >= MAX_PROJECT_VALUE ? "Any" : formatCostLabel(maxCost)}
                 </span>
               )}
               {selectedDevelopers.length > 0 && (
