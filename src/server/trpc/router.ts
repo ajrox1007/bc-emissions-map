@@ -934,15 +934,16 @@ export const appRouter = router({
         _sum: { estimatedCost: true },
       });
 
-      // Top developers
-      const developerCounts: Record<string, { count: number; totalValue: number }> = {};
-      projects.forEach((p) => {
-        if (!developerCounts[p.developer]) {
-          developerCounts[p.developer] = { count: 0, totalValue: 0 };
-        }
-        developerCounts[p.developer].count++;
-        developerCounts[p.developer].totalValue += p.estimatedCost;
-      });
+    // Top developers
+    const developerCounts: Record<string, { count: number; totalValue: number }> = {};
+    projects.forEach((p) => {
+      const dev = p.developer || "Unknown";
+      if (!developerCounts[dev]) {
+        developerCounts[dev] = { count: 0, totalValue: 0 };
+      }
+      developerCounts[dev].count++;
+      developerCounts[dev].totalValue += p.estimatedCost;
+    });
 
       const topDevelopers = Object.entries(developerCounts)
         .map(([name, data]) => ({ name, ...data }))
@@ -1051,7 +1052,8 @@ export const appRouter = router({
       select: { developer: true },
     });
     projects.forEach((p) => {
-      developerCounts[p.developer] = (developerCounts[p.developer] || 0) + 1;
+      const dev = p.developer || "Unknown";
+      developerCounts[dev] = (developerCounts[dev] || 0) + 1;
     });
 
     const topDevelopers = Object.entries(developerCounts)
