@@ -329,6 +329,57 @@ input[type="checkbox"]:checked::after {
 .stagger-4 { animation-delay: 200ms; }
 .stagger-5 { animation-delay: 250ms; }
 
+/* Custom Range Slider Styles */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--color-white);
+  border: 2px solid var(--color-black);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  margin-top: -3px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--color-white);
+  border: 2px solid var(--color-black);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 8px;
+  background: transparent;
+  border-radius: 4px;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 8px;
+  background: transparent;
+  border-radius: 4px;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+input[type="range"]:focus::-webkit-slider-thumb {
+  border-color: var(--color-black);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
+}
+
 /* Responsive utilities */
 @media (max-width: 768px) {
   :root {

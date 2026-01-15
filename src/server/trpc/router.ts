@@ -813,6 +813,7 @@ export const appRouter = router({
         maxCost: z.number().optional(),
         developers: z.array(z.string()).optional(),
         regions: z.array(z.string()).optional(),
+        municipalities: z.array(z.string()).optional(),
         searchQuery: z.string().optional(),
         greenBuildingOnly: z.boolean().optional(),
         cleanEnergyOnly: z.boolean().optional(),
@@ -826,6 +827,7 @@ export const appRouter = router({
         maxCost,
         developers,
         regions,
+        municipalities,
         searchQuery,
         greenBuildingOnly,
         cleanEnergyOnly,
@@ -848,6 +850,9 @@ export const appRouter = router({
           }),
           ...(regions && regions.length > 0 && {
             region: { in: regions },
+          }),
+          ...(municipalities && municipalities.length > 0 && {
+            municipality: { in: municipalities },
           }),
           ...(searchQuery && {
             OR: [
@@ -1042,25 +1047,42 @@ export const appRouter = router({
       distinct: ["projectStatus"],
     });
 
-    // Get unique regions
-    const regions = await ctx.prisma.majorProject.findMany({
-      select: { region: true },
-      distinct: ["region"],
+    // Get all projects for counting
+    const allProjects = await ctx.prisma.majorProject.findMany({
+      select: { developer: true, municipality: true, region: true },
     });
 
-    // Get top developers
+    // Count developers (ALL developers, not just top 30)
     const developerCounts: Record<string, number> = {};
-    const projects = await ctx.prisma.majorProject.findMany({
-      select: { developer: true },
-    });
-    projects.forEach((p) => {
+    allProjects.forEach((p) => {
       const dev = p.developer || "Unknown";
       developerCounts[dev] = (developerCounts[dev] || 0) + 1;
     });
 
     const topDevelopers = Object.entries(developerCounts)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 30)
+      .map(([name, count]) => ({ name, count }));
+
+    // Count municipalities
+    const municipalityCounts: Record<string, number> = {};
+    allProjects.forEach((p) => {
+      const muni = p.municipality || "Unknown";
+      municipalityCounts[muni] = (municipalityCounts[muni] || 0) + 1;
+    });
+
+    const municipalities = Object.entries(municipalityCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+
+    // Count regions
+    const regionCounts: Record<string, number> = {};
+    allProjects.forEach((p) => {
+      const region = p.region || "Unknown";
+      regionCounts[region] = (regionCounts[region] || 0) + 1;
+    });
+
+    const regions = Object.entries(regionCounts)
+      .sort((a, b) => b[1] - a[1])
       .map(([name, count]) => ({ name, count }));
 
     // Cost range
@@ -1072,7 +1094,8 @@ export const appRouter = router({
     return {
       constructionTypes: types.map((t) => t.constructionType),
       projectStatuses: statuses.map((s) => s.projectStatus),
-      regions: regions.map((r) => r.region),
+      regions,
+      municipalities,
       topDevelopers,
       costRange: {
         min: costStats._min.estimatedCost || 0,

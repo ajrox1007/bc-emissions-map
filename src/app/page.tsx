@@ -44,6 +44,8 @@ export default function Home() {
   const [projectMinCost, setProjectMinCost] = useState(0);
   const [projectMaxCost, setProjectMaxCost] = useState(25000); // $25B max
   const [selectedDevelopers, setSelectedDevelopers] = useState<string[]>([]);
+  const [selectedMunicipalities, setSelectedMunicipalities] = useState<string[]>([]);
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
 
@@ -61,6 +63,8 @@ export default function Home() {
     minCost: projectMinCost > 0 ? projectMinCost : undefined,
     maxCost: projectMaxCost < 25000 ? projectMaxCost : undefined,
     developers: selectedDevelopers.length > 0 ? selectedDevelopers : undefined,
+    municipalities: selectedMunicipalities.length > 0 ? selectedMunicipalities : undefined,
+    regions: selectedRegions.length > 0 ? selectedRegions : undefined,
     searchQuery: projectSearchQuery || undefined,
   });
 
@@ -85,6 +89,8 @@ export default function Home() {
     setProjectMinCost(0);
     setProjectMaxCost(25000);
     setSelectedDevelopers([]);
+    setSelectedMunicipalities([]);
+    setSelectedRegions([]);
     setSelectedProjectId(null);
     setProjectSearchQuery("");
   }, []);
@@ -181,6 +187,10 @@ export default function Home() {
               }}
               selectedDevelopers={selectedDevelopers}
               onDevelopersChange={setSelectedDevelopers}
+              selectedMunicipalities={selectedMunicipalities}
+              onMunicipalitiesChange={setSelectedMunicipalities}
+              selectedRegions={selectedRegions}
+              onRegionsChange={setSelectedRegions}
               onReset={handleProjectReset}
             />
           </aside>
