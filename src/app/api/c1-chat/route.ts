@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { prisma } from "@/lib/prisma";
 
-// Initialize Thesys C1 client
-const c1Client = new OpenAI({
-  apiKey: process.env.THESYS_API_KEY,
-  baseURL: "https://api.thesys.dev/v1/embed",
-});
+// Perplexity API configuration
+const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
 
 // System prompt with comprehensive data context
-const SYSTEM_PROMPT = `You are an AI assistant for the BC Emissions Interactive Map application, designed for HVAC business intelligence.
+const SYSTEM_PROMPT = `You are an AI assistant for the BC Emissions Interactive Map application, designed for HVAC business intelligence in British Columbia.
 
 ## Available Data Sources
 
@@ -34,11 +30,11 @@ const SYSTEM_PROMPT = `You are an AI assistant for the BC Emissions Interactive 
 
 ## Your Capabilities
 
-1. **Data Analysis**: Query and analyze emissions, projects, and energy data
-2. **Market Intelligence**: Identify HVAC opportunities, lead generation insights
-3. **Comparisons**: Compare communities, projects, developers, regions
-4. **Calculations**: Emissions savings, rebate estimates, conversion potential
-5. **Document Generation**: Create reports, summaries, and analysis documents
+1. Data Analysis: Query and analyze emissions, projects, and energy data
+2. Market Intelligence: Identify HVAC opportunities, lead generation insights
+3. Comparisons: Compare communities, projects, developers, regions
+4. Calculations: Emissions savings, rebate estimates, conversion potential
+5. Research: Access real-time web information when needed
 
 ## Response Guidelines
 
@@ -46,20 +42,14 @@ const SYSTEM_PROMPT = `You are an AI assistant for the BC Emissions Interactive 
 - Use tables and structured formats for data-heavy responses
 - Provide actionable insights for HVAC business decisions
 - Be precise with numbers and avoid hallucinating statistics
+- Format responses with clear headings and bullet points
 
 ## BC Regulatory Context
 
 - BC's CleanBC targets: 40% reduction by 2030, 60% by 2040, 80% by 2050
 - Zero Carbon Step Code: Progressive requirements for new buildings
 - Heat pump adoption incentives: Up to $16,000 for residential, higher for commercial
-- Climate zones: 4-7A depending on location, affecting equipment requirements
-
-When generating UI, you can create:
-- Charts and graphs for emissions data visualization
-- Tables for comparisons
-- Cards for community/project summaries
-- Forms for calculations
-- Interactive elements for data exploration`;
+- Climate zones: 4-7A depending on location, affecting equipment requirements`;
 
 // Helper to build data context from database
 async function buildDataContext(query: string): Promise<string> {
@@ -71,14 +61,15 @@ async function buildDataContext(query: string): Promise<string> {
     const communityCount = await prisma.community.count();
     const projectCount = await prisma.majorProject.count();
     
-    context += `\n\n--- Database Summary ---`;
+    context += `\n\n[Database Context]`;
     context += `\nTotal Communities: ${communityCount}`;
     context += `\nTotal Major Projects: ${projectCount}`;
 
     // If asking about specific community
     const communityKeywords = [
       "vancouver", "surrey", "burnaby", "richmond", "victoria", 
-      "kelowna", "kamloops", "nanaimo", "prince george", "abbotsford"
+      "kelowna", "kamloops", "nanaimo", "prince george", "abbotsford",
+      "coquitlam", "langley", "delta", "maple ridge", "chilliwack"
     ];
     
     for (const keyword of communityKeywords) {
@@ -87,7 +78,7 @@ async function buildDataContext(query: string): Promise<string> {
           where: { orgName: { contains: keyword } },
         });
         if (community) {
-          context += `\n\n--- ${community.orgName} Data ---`;
+          context += `\n\n[${community.orgName} Emissions Data]`;
           context += `\nTotal Emissions: ${community.totalEmissions.toLocaleString()} TCO2e`;
           context += `\nResidential: ${community.resEmissions.toLocaleString()} TCO2e`;
           context += `\nCommercial/Industrial: ${community.csmiEmissions.toLocaleString()} TCO2e`;
@@ -100,12 +91,12 @@ async function buildDataContext(query: string): Promise<string> {
     }
 
     // If asking about top/highest/largest emissions
-    if (lowerQuery.includes("top") || lowerQuery.includes("highest") || lowerQuery.includes("largest")) {
+    if (lowerQuery.includes("top") || lowerQuery.includes("highest") || lowerQuery.includes("largest") || lowerQuery.includes("most")) {
       const topCommunities = await prisma.community.findMany({
         orderBy: { totalEmissions: "desc" },
         take: 10,
       });
-      context += `\n\n--- Top 10 Communities by Emissions ---`;
+      context += `\n\n[Top 10 Communities by Emissions]`;
       topCommunities.forEach((c: any, i: number) => {
         context += `\n${i + 1}. ${c.orgName}: ${c.totalEmissions.toLocaleString()} TCO2e`;
       });
@@ -124,7 +115,7 @@ async function buildDataContext(query: string): Promise<string> {
         _sum: { estimatedCost: true },
       });
       
-      context += `\n\n--- Project Statistics ---`;
+      context += `\n\n[Project Statistics]`;
       context += `\nTotal Projects: ${projectStats._count}`;
       context += `\nTotal Value: $${((projectStats._sum.estimatedCost || 0) / 1000).toFixed(1)}B`;
       
@@ -134,13 +125,14 @@ async function buildDataContext(query: string): Promise<string> {
     }
 
     // If asking about LNG or specific project types
-    if (lowerQuery.includes("lng") || lowerQuery.includes("gas") || lowerQuery.includes("pipeline")) {
+    if (lowerQuery.includes("lng") || lowerQuery.includes("gas") || lowerQuery.includes("pipeline") || lowerQuery.includes("energy")) {
       const lngProjects = await prisma.majorProject.findMany({
         where: {
           OR: [
             { name: { contains: "LNG" } },
             { name: { contains: "Gas" } },
             { name: { contains: "Pipeline" } },
+            { name: { contains: "Energy" } },
           ],
         },
         orderBy: { estimatedCost: "desc" },
@@ -148,7 +140,7 @@ async function buildDataContext(query: string): Promise<string> {
       });
       
       if (lngProjects.length > 0) {
-        context += `\n\n--- LNG/Gas Projects ---`;
+        context += `\n\n[Energy/LNG Projects]`;
         lngProjects.forEach((p: any, i: number) => {
           context += `\n${i + 1}. ${p.name}: $${(p.estimatedCost / 1000).toFixed(1)}B (${p.projectStatus})`;
         });
@@ -156,7 +148,7 @@ async function buildDataContext(query: string): Promise<string> {
     }
 
     // If asking about developers
-    if (lowerQuery.includes("developer") || lowerQuery.includes("who is building")) {
+    if (lowerQuery.includes("developer") || lowerQuery.includes("who is building") || lowerQuery.includes("builder")) {
       const developers = await prisma.majorProject.groupBy({
         by: ["developer"],
         _count: true,
@@ -168,25 +160,35 @@ async function buildDataContext(query: string): Promise<string> {
         .sort((a: any, b: any) => (b._sum.estimatedCost || 0) - (a._sum.estimatedCost || 0))
         .slice(0, 10);
       
-      context += `\n\n--- Top Developers by Project Value ---`;
+      context += `\n\n[Top Developers by Project Value]`;
       topDevs.forEach((d: any, i: number) => {
         context += `\n${i + 1}. ${d.developer}: ${d._count} projects ($${((d._sum.estimatedCost || 0) / 1000).toFixed(1)}B)`;
       });
     }
 
-    // Include uploaded documents if available
-    const documents = await prisma.uploadedDocument.findMany({
-      select: { filename: true, summary: true, category: true },
-      take: 5,
-    });
-    
-    if (documents.length > 0) {
-      context += `\n\n--- Uploaded Documents ---`;
-      documents.forEach((doc: any) => {
-        context += `\n• ${doc.filename}${doc.category ? ` (${doc.category})` : ""}`;
-        if (doc.summary) {
-          context += `\n  Summary: ${doc.summary.substring(0, 200)}...`;
-        }
+    // If asking about fossil fuel or gas heating
+    if (lowerQuery.includes("fossil") || lowerQuery.includes("gas heating") || lowerQuery.includes("natural gas")) {
+      const highGasCommunities = await prisma.community.findMany({
+        orderBy: { gasEmissions: "desc" },
+        take: 10,
+      });
+      context += `\n\n[Communities with Highest Gas Emissions]`;
+      highGasCommunities.forEach((c: any, i: number) => {
+        const gasPercent = c.totalEmissions > 0 ? ((c.gasEmissions / c.totalEmissions) * 100).toFixed(1) : 0;
+        context += `\n${i + 1}. ${c.orgName}: ${c.gasEmissions.toLocaleString()} TCO2e (${gasPercent}% of total)`;
+      });
+    }
+
+    // If asking about opportunities or leads
+    if (lowerQuery.includes("opportunit") || lowerQuery.includes("lead") || lowerQuery.includes("potential")) {
+      const opportunities = await prisma.community.findMany({
+        where: { gasEmissions: { gt: 10000 } },
+        orderBy: { gasEmissions: "desc" },
+        take: 10,
+      });
+      context += `\n\n[High-Potential HVAC Conversion Opportunities]`;
+      opportunities.forEach((c: any, i: number) => {
+        context += `\n${i + 1}. ${c.orgName}: ${c.gasEmissions.toLocaleString()} TCO2e gas emissions, ${c.totalConnections} connections`;
       });
     }
 
@@ -210,6 +212,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const apiKey = process.env.PERPLEXITY_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "Perplexity API key not configured" },
+        { status: 500 }
+      );
+    }
+
     // Get the latest user message for context building
     const lastUserMessage = messages.filter((m: any) => m.role === "user").pop();
     const userQuery = lastUserMessage?.content || "";
@@ -227,14 +237,31 @@ export async function POST(request: NextRequest) {
       },
     ];
 
-    const completion = await c1Client.chat.completions.create({
-      model: "c1-nightly",
-      messages: fullMessages as any,
-      temperature: 0.7,
-      max_tokens: 4000,
+    const response = await fetch(PERPLEXITY_API_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "sonar-pro",
+        messages: fullMessages,
+        temperature: 0.7,
+        max_tokens: 4000,
+      }),
     });
 
-    const assistantContent = completion.choices[0]?.message?.content || "";
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Perplexity API error:", errorText);
+      return NextResponse.json(
+        { error: `Perplexity API error: ${response.status}` },
+        { status: response.status }
+      );
+    }
+
+    const data = await response.json();
+    const assistantContent = data.choices?.[0]?.message?.content || "";
 
     // Save conversation to database
     try {
@@ -271,12 +298,12 @@ export async function POST(request: NextRequest) {
       console.error("Error saving to database:", dbError);
     }
 
-    // Return in OpenAI-compatible format for C1Chat
+    // Return in OpenAI-compatible format
     return NextResponse.json({
-      id: `chatcmpl-${Date.now()}`,
+      id: data.id || `chatcmpl-${Date.now()}`,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: "c1-nightly",
+      model: "sonar-pro",
       choices: [
         {
           index: 0,
@@ -287,13 +314,13 @@ export async function POST(request: NextRequest) {
           finish_reason: "stop",
         },
       ],
+      citations: data.citations || [],
     });
   } catch (error: any) {
-    console.error("C1 Chat API Error:", error);
+    console.error("Chat API Error:", error);
     return NextResponse.json(
       { error: error.message || "Internal server error" },
       { status: 500 }
     );
   }
 }
-
