@@ -208,6 +208,10 @@ export default function ProjectDetail({ projectId, onClose }: ProjectDetailProps
                 <span className="text-sm font-medium">{project.projectStage}</span>
               </div>
             )}
+
+            {!project.startDate && !project.completionDate && !project.projectStage && (
+              <span className="text-sm text-gray-500">Timeline not yet available</span>
+            )}
           </div>
         </div>
 
