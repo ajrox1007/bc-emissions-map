@@ -156,11 +156,11 @@ function getCoordinates(municipality: string | undefined, region: string): { lat
   return { lat: null, lng: null };
 }
 
-function parseExcelDate(value: number | undefined): Date | null {
+function parseExcelDate(value: number | undefined): string | null {
   if (!value) return null;
   // Excel dates are days since 1900-01-01
   const date = new Date((value - 25569) * 86400 * 1000);
-  return isNaN(date.getTime()) ? null : date;
+  return isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 interface MPIRow {
