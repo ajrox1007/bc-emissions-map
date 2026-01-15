@@ -13,6 +13,7 @@ import SearchBar from "@/components/SearchBar";
 import ProjectsMap from "@/components/ProjectsMap";
 import ProjectFilters from "@/components/ProjectFilters";
 import ProjectDetail from "@/components/ProjectDetail";
+import AIChatbot from "@/components/AIChatbot";
 
 type Segment = "Res" | "CSMI" | "MIXED";
 type ViewMode = "map" | "dashboard" | "opportunities" | "rebates" | "projects";
@@ -426,6 +427,9 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* AI Chatbot */}
+      <AIChatbot />
     </div>
   );
 }

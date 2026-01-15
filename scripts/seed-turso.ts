@@ -607,6 +607,47 @@ async function main() {
   await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_project_developer ON MajorProject(developer)`);
   await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_project_estimatedCost ON MajorProject(estimatedCost)`);
   await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_project_region ON MajorProject(region)`);
+
+  // Create UploadedDocument table
+  await libsql.execute(`
+    CREATE TABLE IF NOT EXISTS UploadedDocument (
+      id TEXT PRIMARY KEY,
+      filename TEXT NOT NULL,
+      mimeType TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      summary TEXT,
+      category TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
+  await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_document_filename ON UploadedDocument(filename)`);
+  await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_document_category ON UploadedDocument(category)`);
+
+  // Create Conversation table
+  await libsql.execute(`
+    CREATE TABLE IF NOT EXISTS Conversation (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
+
+  // Create Message table
+  await libsql.execute(`
+    CREATE TABLE IF NOT EXISTS Message (
+      id TEXT PRIMARY KEY,
+      conversationId TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      researchMode INTEGER DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (conversationId) REFERENCES Conversation(id) ON DELETE CASCADE
+    )
+  `);
+  await libsql.execute(`CREATE INDEX IF NOT EXISTS idx_message_conversationId ON Message(conversationId)`);
   
   // Find MPI Excel file
   const mpiPaths = [

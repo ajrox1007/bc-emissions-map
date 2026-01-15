@@ -106,3 +106,42 @@ model MajorProject {
   @@index([estimatedCost])
   @@index([region])
 }
+
+// Uploaded documents for AI context
+model UploadedDocument {
+  id          String   @id @default(uuid())
+  filename    String
+  mimeType    String
+  size        Int
+  content     String   // Extracted text content
+  summary     String?  // AI-generated summary
+  category    String?  // User-defined category
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([filename])
+  @@index([category])
+}
+
+// AI Conversation history
+model Conversation {
+  id        String    @id @default(uuid())
+  title     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  messages  Message[]
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  role           String       // user, assistant, system
+  content        String
+  researchMode   Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
