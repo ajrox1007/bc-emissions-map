@@ -67,7 +67,7 @@ export default function FilterControls({
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.3 }}
-      className="space-y-6"
+      className="p-4 space-y-6"
     >
       {/* Segment Filter */}
       <div>
