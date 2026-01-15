@@ -106,3 +106,38 @@ model MajorProject {
   @@index([estimatedCost])
   @@index([region])
 }
+
+// AI Chatbot Models
+model UploadedDocument {
+  id        String   @id @default(uuid())
+  filename  String
+  filepath  String?  // Path to stored file or identifier in external storage
+  mimetype  String
+  size      Int
+  category  String?
+  summary   String?  // AI-generated summary of the document
+  content   String?  // Store actual content for RAG-like inference
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  title     String   @default("New Conversation")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  Message[]
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  isUser         Boolean     @default(true) // Indicates if the message was sent by the user
+  researchMode   Boolean     @default(false) // Indicates if research mode was active for this message
+  timestamp      DateTime    @default(now())
+}
