@@ -16,7 +16,7 @@ interface Project {
   municipality: string | null;
   latitude: number | null;
   longitude: number | null;
-  developer: string;
+  developer: string | null;
   projectStatus: string;
   greenBuilding: boolean;
   cleanEnergy: boolean;
