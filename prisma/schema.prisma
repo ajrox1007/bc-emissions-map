@@ -96,8 +96,8 @@ model MajorProject {
   startDate             String?
   completionDate        String?
   telephone             String?
-  firstEntryDate        DateTime?
-  lastUpdate            DateTime?
+  firstEntryDate        String?
+  lastUpdate            String?
   createdAt             DateTime @default(now())
 
   @@index([projectStatus])

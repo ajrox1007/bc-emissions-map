@@ -623,6 +623,32 @@ async function main() {
     }
   }
   
+  // Helper function to convert Excel serial dates to ISO strings
+  function excelDateToISO(excelDate: unknown): string | null {
+    if (!excelDate) return null;
+    
+    // If it's already a string that looks like a date, return it
+    if (typeof excelDate === "string") {
+      if (excelDate.includes("-") || excelDate.includes("/")) {
+        return excelDate;
+      }
+      // Try parsing as number
+      const num = parseFloat(excelDate);
+      if (isNaN(num)) return null;
+      excelDate = num;
+    }
+    
+    // Excel serial date: days since 1899-12-30
+    if (typeof excelDate === "number") {
+      // Excel's epoch is 1899-12-30 (but Excel incorrectly thinks 1900 is a leap year)
+      const excelEpoch = new Date(1899, 11, 30);
+      const date = new Date(excelEpoch.getTime() + excelDate * 24 * 60 * 60 * 1000);
+      return date.toISOString();
+    }
+    
+    return null;
+  }
+  
   if (!mpiPath) {
     console.log("⚠️  MPI Excel file not found. Skipping major projects seeding.");
   } else {
@@ -739,11 +765,11 @@ async function main() {
           row["GREEN_BUILDING"] ? 1 : 0,
           row["CLEAN_ENERGY"] ? 1 : 0,
           row["INDIGENOUS"] ? 1 : 0,
-          row["START_DATE"] ? String(row["START_DATE"]) : null,
-          row["COMPLETION_DATE"] ? String(row["COMPLETION_DATE"]) : null,
+          excelDateToISO(row["START_DATE"]),
+          excelDateToISO(row["COMPLETION_DATE"]),
           row["TELEPHONE"] ? String(row["TELEPHONE"]) : null,
-          row["FIRST_ENTRY_DATE"] ? String(row["FIRST_ENTRY_DATE"]) : null,
-          row["LAST_UPDATE"] ? String(row["LAST_UPDATE"]) : null,
+          excelDateToISO(row["FIRST_ENTRY_DATE"]),
+          excelDateToISO(row["LAST_UPDATE"]),
           nowISO,
           nowISO,
         ],
