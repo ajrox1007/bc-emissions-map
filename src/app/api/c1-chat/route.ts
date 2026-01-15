@@ -213,9 +213,22 @@ export async function POST(request: NextRequest) {
     }
 
     const apiKey = process.env.PERPLEXITY_API_KEY;
+    
+    // Debug logging (remove in production)
+    console.log("API Key exists:", !!apiKey);
+    console.log("API Key length:", apiKey?.length || 0);
+    console.log("API Key prefix:", apiKey?.substring(0, 8) || "none");
+    
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Perplexity API key not configured" },
+        { error: "Perplexity API key not configured. Please add PERPLEXITY_API_KEY to your .env.local file." },
+        { status: 500 }
+      );
+    }
+    
+    if (apiKey.length < 20) {
+      return NextResponse.json(
+        { error: "Perplexity API key appears to be invalid (too short)" },
         { status: 500 }
       );
     }
