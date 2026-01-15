@@ -80,7 +80,7 @@ model MajorProject {
   municipality          String?
   latitude              Float?
   longitude             Float?
-  developer             String
+  developer             String?
   architect             String?
   projectStatus         String   // Construction started, Proposed, Completed, On hold
   projectStage          String?
