@@ -1229,19 +1229,19 @@ function CompetitorDetailView({
           try {
             const jsonMatch = content.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
             if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
+              const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
               
-              if (parsed.noDataFound === true) {
+              if (parsed && typeof parsed === 'object' && 'noDataFound' in parsed && parsed.noDataFound === true) {
                 noDataFound = true;
                 parsedData = [];
               } else if (Array.isArray(parsed)) {
-                parsedData = Array.isArray(parsed) ? parsed.map((item) => ({ ...item, images })) : [{ ...parsed, images }];
-              } else if (parsed.findings || parsed.activities || parsed.regulations || 
-                         parsed.trends || parsed.gaps || parsed.techPriorities) {
-                const dataArray = parsed.findings || parsed.activities || parsed.regulations ||
-                            parsed.trends || parsed.gaps || parsed.techPriorities || [];
-                parsedData = dataArray.length > 0 ? dataArray.map((item: any) => ({ ...item, images })) : [];
-              } else {
+                parsedData = parsed.map((item: Record<string, unknown>) => ({ ...item, images }));
+              } else if (parsed && typeof parsed === 'object' && (parsed.findings || parsed.activities || parsed.regulations || 
+                         parsed.trends || parsed.gaps || parsed.techPriorities)) {
+                const dataArray = (parsed.findings || parsed.activities || parsed.regulations ||
+                            parsed.trends || parsed.gaps || parsed.techPriorities || []) as Record<string, unknown>[];
+                parsedData = dataArray.length > 0 ? dataArray.map((item) => ({ ...item, images })) : [];
+              } else if (parsed && typeof parsed === 'object') {
                 parsedData = [{ ...parsed, images }];
               }
             }
