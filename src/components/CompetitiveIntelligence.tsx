@@ -861,7 +861,7 @@ function ResearchItemCard({ item }: { item: any }) {
         </div>
         {imageUrls.length > 0 && (
           <div className="grid grid-cols-2 gap-3 mb-5">
-            {imageUrls.slice(0, 4).map((imageUrl, idx) => (
+            {imageUrls.slice(0, 4).map((imageUrl: string, idx: number) => (
               <div key={`img-${idx}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                 <img
                   src={imageUrl}
