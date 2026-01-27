@@ -1,7 +1,7 @@
 "use client";
 
 import { APIProvider, Map, AdvancedMarker, InfoWindow, useMap } from "@vis.gl/react-google-maps";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Project {
@@ -51,11 +51,13 @@ function formatCost(cost: number): string {
 
 function ProjectMarker({
   project,
+  position,
   isSelected,
   onClick,
   onViewDetails,
 }: {
   project: Project;
+  position: { lat: number; lng: number };
   isSelected: boolean;
   onClick: () => void;
   onViewDetails: () => void;
@@ -66,7 +68,7 @@ function ProjectMarker({
   return (
     <>
       <AdvancedMarker
-        position={{ lat: project.latitude!, lng: project.longitude! }}
+        position={position}
         onClick={onClick}
         zIndex={isSelected ? 100 : project.estimatedCost}
       >
@@ -101,7 +103,7 @@ function ProjectMarker({
 
       {isSelected && (
         <InfoWindow
-          position={{ lat: project.latitude!, lng: project.longitude! }}
+          position={position}
           onCloseClick={onClick}
           pixelOffset={[0, -30]}
         >
@@ -165,6 +167,48 @@ function ProjectMarker({
   );
 }
 
+// Helper to calculate offset positions for overlapping projects
+function calculateProjectPositions(projects: Project[]): globalThis.Map<string, { lat: number; lng: number }> {
+  const positionMap = new globalThis.Map<string, { lat: number; lng: number }>();
+  const locationGroups = new globalThis.Map<string, Project[]>();
+
+  // Group projects by location (rounded to avoid floating point issues)
+  projects.forEach((project) => {
+    if (project.latitude && project.longitude) {
+      const key = `${project.latitude.toFixed(5)},${project.longitude.toFixed(5)}`;
+      const group = locationGroups.get(key) || [];
+      group.push(project);
+      locationGroups.set(key, group);
+    }
+  });
+
+  // Calculate positions with offsets for overlapping projects
+  locationGroups.forEach((group, locationKey) => {
+    if (group.length === 1) {
+      // Single project - use original position
+      const project = group[0];
+      positionMap.set(project.id, {
+        lat: project.latitude!,
+        lng: project.longitude!,
+      });
+    } else {
+      // Multiple projects at same location - arrange in a circle
+      const [baseLat, baseLng] = locationKey.split(',').map(Number);
+      const radius = 0.01; // Offset radius in degrees (roughly 1km)
+      const angleStep = (2 * Math.PI) / group.length;
+
+      group.forEach((project, index) => {
+        const angle = index * angleStep;
+        const offsetLat = baseLat + (radius * Math.cos(angle));
+        const offsetLng = baseLng + (radius * Math.sin(angle));
+        positionMap.set(project.id, { lat: offsetLat, lng: offsetLng });
+      });
+    }
+  });
+
+  return positionMap;
+}
+
 function MapContent({
   projects,
   onProjectSelect,
@@ -172,6 +216,11 @@ function MapContent({
 }: ProjectsMapProps) {
   const map = useMap();
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
+
+  // Calculate positions with offsets for overlapping projects
+  const projectPositions = useMemo(() => {
+    return calculateProjectPositions(projects);
+  }, [projects]);
 
   // Fit bounds to show all projects
   useEffect(() => {
@@ -192,20 +241,24 @@ function MapContent({
 
   return (
     <>
-      {projects.map((project) => (
-        project.latitude && project.longitude && (
-          <ProjectMarker
-            key={project.id}
-            project={project}
-            isSelected={activeMarkerId === project.id}
-            onClick={() => handleMarkerClick(project.id)}
-            onViewDetails={() => {
-              onProjectSelect(project.id);
-              setActiveMarkerId(null);
-            }}
-          />
-        )
-      ))}
+      {projects.map((project) => {
+        const position = projectPositions.get(project.id);
+        return (
+          position && (
+            <ProjectMarker
+              key={project.id}
+              project={project}
+              position={position}
+              isSelected={activeMarkerId === project.id}
+              onClick={() => handleMarkerClick(project.id)}
+              onViewDetails={() => {
+                onProjectSelect(project.id);
+                setActiveMarkerId(null);
+              }}
+            />
+          )
+        );
+      })}
     </>
   );
 }

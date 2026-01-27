@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Message {
   role: "user" | "assistant";
@@ -123,71 +125,97 @@ export default function AIChatbot() {
     }
   };
 
-  const formatMessage = (content: string) => {
-    return content.split("\n").map((line, i) => {
-      // Headers
-      if (line.startsWith("### ")) {
-        return (
-          <h4 key={i} className="font-semibold text-sm mt-3 mb-1 text-gray-900">
-            {line.replace("### ", "")}
-          </h4>
-        );
-      }
-      if (line.startsWith("## ")) {
-        return (
-          <h3 key={i} className="font-bold text-base mt-4 mb-2 text-gray-900">
-            {line.replace("## ", "")}
-          </h3>
-        );
-      }
-      if (line.startsWith("# ")) {
-        return (
-          <h2 key={i} className="font-bold text-lg mt-4 mb-2 text-gray-900">
-            {line.replace("# ", "")}
-          </h2>
-        );
-      }
-      // Bullet points
-      if (line.startsWith("- ") || line.startsWith("• ")) {
-        return (
-          <li key={i} className="ml-4 text-sm text-gray-700 leading-relaxed">
-            {line.replace(/^[-•] /, "")}
-          </li>
-        );
-      }
-      // Numbered lists
-      if (/^\d+\. /.test(line)) {
-        return (
-          <li key={i} className="ml-4 text-sm text-gray-700 list-decimal leading-relaxed">
-            {line.replace(/^\d+\. /, "")}
-          </li>
-        );
-      }
-      // Bold text
-      if (line.includes("**")) {
-        const parts = line.split(/\*\*(.*?)\*\*/g);
-        return (
-          <p key={i} className="text-sm text-gray-700 leading-relaxed">
-            {parts.map((part, j) =>
-              j % 2 === 1 ? (
-                <strong key={j} className="font-semibold text-gray-900">{part}</strong>
-              ) : (
-                <span key={j}>{part}</span>
-              )
-            )}
-          </p>
-        );
-      }
-      // Regular paragraph
-      if (line.trim()) {
-        return (
-          <p key={i} className="text-sm text-gray-700 mb-1 leading-relaxed">
-            {line}
-          </p>
-        );
-      }
-      return <div key={i} className="h-2" />;
-    });
+  const MarkdownComponents = {
+    // Headings
+    h1: ({ children }: any) => (
+      <h1 className="text-xl font-bold text-gray-900 mt-6 mb-3 first:mt-0">{children}</h1>
+    ),
+    h2: ({ children }: any) => (
+      <h2 className="text-lg font-bold text-gray-900 mt-5 mb-2 first:mt-0">{children}</h2>
+    ),
+    h3: ({ children }: any) => (
+      <h3 className="text-base font-semibold text-gray-900 mt-4 mb-2 first:mt-0">{children}</h3>
+    ),
+    h4: ({ children }: any) => (
+      <h4 className="text-sm font-semibold text-gray-900 mt-3 mb-1 first:mt-0">{children}</h4>
+    ),
+    // Paragraphs
+    p: ({ children }: any) => (
+      <p className="text-sm text-gray-700 mb-3 leading-relaxed last:mb-0">{children}</p>
+    ),
+    // Lists
+    ul: ({ children }: any) => (
+      <ul className="list-disc list-inside space-y-1 mb-3 text-sm text-gray-700">{children}</ul>
+    ),
+    ol: ({ children }: any) => (
+      <ol className="list-decimal list-inside space-y-1 mb-3 text-sm text-gray-700">{children}</ol>
+    ),
+    li: ({ children }: any) => (
+      <li className="leading-relaxed ml-2">{children}</li>
+    ),
+    // Tables
+    table: ({ children }: any) => (
+      <div className="overflow-x-auto my-4 rounded-lg border border-gray-200">
+        <table className="min-w-full divide-y divide-gray-200">{children}</table>
+      </div>
+    ),
+    thead: ({ children }: any) => (
+      <thead className="bg-gray-50">{children}</thead>
+    ),
+    tbody: ({ children }: any) => (
+      <tbody className="bg-white divide-y divide-gray-200">{children}</tbody>
+    ),
+    tr: ({ children }: any) => (
+      <tr className="hover:bg-gray-50 transition-colors">{children}</tr>
+    ),
+    th: ({ children }: any) => (
+      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">
+        {children}
+      </th>
+    ),
+    td: ({ children }: any) => (
+      <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{children}</td>
+    ),
+    // Code blocks
+    code: ({ inline, children }: any) =>
+      inline ? (
+        <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-xs font-mono">
+          {children}
+        </code>
+      ) : (
+        <code className="block bg-gray-100 text-gray-800 p-3 rounded-lg text-xs font-mono overflow-x-auto my-2">
+          {children}
+        </code>
+      ),
+    pre: ({ children }: any) => (
+      <pre className="bg-gray-100 rounded-lg overflow-x-auto my-2">{children}</pre>
+    ),
+    // Emphasis
+    strong: ({ children }: any) => (
+      <strong className="font-semibold text-gray-900">{children}</strong>
+    ),
+    em: ({ children }: any) => (
+      <em className="italic text-gray-700">{children}</em>
+    ),
+    // Blockquotes
+    blockquote: ({ children }: any) => (
+      <blockquote className="border-l-4 border-gray-300 pl-4 py-2 my-3 text-gray-700 italic bg-gray-50 rounded-r">
+        {children}
+      </blockquote>
+    ),
+    // Links
+    a: ({ href, children }: any) => (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:text-blue-800 underline"
+      >
+        {children}
+      </a>
+    ),
+    // Horizontal rule
+    hr: () => <hr className="my-4 border-gray-200" />,
   };
 
   return (
@@ -217,7 +245,7 @@ export default function AIChatbot() {
             onKeyDown={handleKeyDown}
           >
             {/* Header */}
-            <header className="h-16 border-b border-gray-200 flex items-center justify-between px-6 bg-white">
+            <header className="h-16 border-b border-gray-200 flex items-center justify-between px-8 bg-white">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
@@ -227,7 +255,7 @@ export default function AIChatbot() {
                   </div>
                   <div>
                     <h1 className="font-semibold text-gray-900">BC Emissions AI</h1>
-                    <p className="text-xs text-gray-500">Powered by Perplexity Sonar Pro</p>
+                    <p className="text-xs text-gray-500">Powered by Perplexity Sonar Reasoning Pro</p>
                   </div>
                 </div>
               </div>
@@ -257,8 +285,8 @@ export default function AIChatbot() {
             </header>
 
             {/* Main Content */}
-            <main className="h-[calc(100vh-8rem)] overflow-y-auto">
-              <div className="max-w-3xl mx-auto px-6 py-8">
+            <main className="h-[calc(100vh-9rem)] overflow-y-auto bg-gray-50">
+              <div className="max-w-6xl mx-auto px-8 py-8">
                 {messages.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
@@ -269,10 +297,10 @@ export default function AIChatbot() {
                     <h2 className="text-xl font-semibold text-gray-900 mb-2">
                       How can I help you today?
                     </h2>
-                    <p className="text-gray-500 mb-8 max-w-md mx-auto">
+                    <p className="text-gray-500 mb-8 max-w-xl mx-auto">
                       Ask me about BC emissions data, major projects, HVAC opportunities, or market intelligence.
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
                       {QUICK_PROMPTS.slice(0, 4).map((prompt, i) => (
                         <button
                           key={i}
@@ -294,16 +322,23 @@ export default function AIChatbot() {
                         className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`max-w-[80%] ${
+                          className={`${msg.role === "user" ? "max-w-[70%]" : "max-w-[95%]"} ${
                             msg.role === "user"
                               ? "bg-black text-white rounded-2xl rounded-br-md px-4 py-3"
-                              : "bg-gray-50 rounded-2xl rounded-bl-md px-4 py-3"
+                              : "bg-white rounded-2xl rounded-bl-md px-5 py-5 border border-gray-200 shadow-sm"
                           }`}
                         >
                           {msg.role === "user" ? (
                             <p className="text-sm">{msg.content}</p>
                           ) : (
-                            <div className="prose-sm">{formatMessage(msg.content)}</div>
+                            <div className="markdown-content">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={MarkdownComponents}
+                              >
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
                           )}
                         </div>
                       </motion.div>
@@ -315,7 +350,7 @@ export default function AIChatbot() {
                         animate={{ opacity: 1 }}
                         className="flex justify-start"
                       >
-                        <div className="bg-gray-50 rounded-2xl rounded-bl-md px-4 py-3">
+                        <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 border border-gray-200 shadow-sm">
                           <div className="flex gap-1.5">
                             <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                             <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -332,8 +367,8 @@ export default function AIChatbot() {
             </main>
 
             {/* Input Footer */}
-            <footer className="h-16 border-t border-gray-200 bg-white px-6 flex items-center">
-              <div className="max-w-3xl mx-auto w-full flex gap-3">
+            <footer className="h-20 border-t border-gray-200 bg-white px-8 flex items-center">
+              <div className="max-w-6xl mx-auto w-full flex gap-3">
                 <input
                   ref={inputRef}
                   type="text"

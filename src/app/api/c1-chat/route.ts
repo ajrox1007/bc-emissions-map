@@ -203,7 +203,14 @@ async function buildDataContext(query: string): Promise<string> {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { messages } = body;
+    const { 
+      messages, 
+      return_images = false,
+      image_domain_filter,
+      image_format_filter,
+      skipContext = false,
+      customSystemPrompt,
+    } = body;
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -237,18 +244,44 @@ export async function POST(request: NextRequest) {
     const lastUserMessage = messages.filter((m: any) => m.role === "user").pop();
     const userQuery = lastUserMessage?.content || "";
 
-    // Build context from database
-    const dataContext = await buildDataContext(userQuery);
+    // Build context from database (skip if doing research-only queries)
+    const dataContext = skipContext ? "" : await buildDataContext(userQuery);
+
+    // Use custom system prompt or default
+    const systemPrompt = customSystemPrompt || SYSTEM_PROMPT;
 
     // Prepare messages with system prompt and context
     const fullMessages = [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       ...messages.slice(0, -1),
       {
         role: "user",
-        content: `${userQuery}${dataContext}`,
+        content: dataContext ? `${userQuery}${dataContext}` : userQuery,
       },
     ];
+
+    // Build request body with optional image parameters
+    // Using very low temperature and top_p for maximum consistency/reproducibility
+    const requestBody: any = {
+      model: "sonar-reasoning-pro",
+      messages: fullMessages,
+      temperature: 0, // Zero temperature = deterministic, same input = same output
+      max_tokens: 6000,
+      top_p: 0.1, // Very low top_p for consistent results
+      presence_penalty: 0, // No penalty for repeating content
+      frequency_penalty: 0, // No penalty for frequency
+    };
+
+    // Add image support if requested
+    if (return_images) {
+      requestBody.return_images = true;
+      if (image_domain_filter && Array.isArray(image_domain_filter)) {
+        requestBody.image_domain_filter = image_domain_filter.slice(0, 10); // Max 10 entries
+      }
+      if (image_format_filter && Array.isArray(image_format_filter)) {
+        requestBody.image_format_filter = image_format_filter.slice(0, 10); // Max 10 entries
+      }
+    }
 
     const response = await fetch(PERPLEXITY_API_URL, {
       method: "POST",
@@ -256,12 +289,7 @@ export async function POST(request: NextRequest) {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: "sonar-pro",
-        messages: fullMessages,
-        temperature: 0.7,
-        max_tokens: 4000,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -311,12 +339,12 @@ export async function POST(request: NextRequest) {
       console.error("Error saving to database:", dbError);
     }
 
-    // Return in OpenAI-compatible format
+    // Return in OpenAI-compatible format with images if available
     return NextResponse.json({
       id: data.id || `chatcmpl-${Date.now()}`,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: "sonar-pro",
+      model: "sonar-reasoning-pro",
       choices: [
         {
           index: 0,
@@ -328,6 +356,7 @@ export async function POST(request: NextRequest) {
         },
       ],
       citations: data.citations || [],
+      images: data.images || [], // Include images if returned by Sonar
     });
   } catch (error: any) {
     console.error("Chat API Error:", error);

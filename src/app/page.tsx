@@ -14,9 +14,11 @@ import ProjectsMap from "@/components/ProjectsMap";
 import ProjectFilters from "@/components/ProjectFilters";
 import ProjectDetail from "@/components/ProjectDetail";
 import AIChatbot from "@/components/AIChatbot";
+import CompetitiveIntelligence from "@/components/CompetitiveIntelligence";
 
 type Segment = "Res" | "CSMI" | "MIXED";
-type ViewMode = "map" | "dashboard" | "opportunities" | "rebates" | "projects";
+type ViewMode = "maps" | "dashboard" | "opportunities" | "rebates" | "intelligence";
+type MapType = "emissions" | "projects";
 type EnergySourceFilter = "all" | "fossilHeavy" | "electricHeavy" | "electricDominant";
 
 const DEFAULT_THRESHOLD = 10000;
@@ -24,19 +26,22 @@ const DEFAULT_SEGMENTS: Segment[] = ["Res", "CSMI", "MIXED"];
 const DEFAULT_ENERGY_FILTER: EnergySourceFilter = "all";
 
 const VIEW_TABS: { id: ViewMode; label: string; description: string }[] = [
-  { id: "map", label: "Emissions", description: "Interactive emissions map" },
-  { id: "projects", label: "Projects", description: "BC Major Projects" },
+  { id: "maps", label: "Maps", description: "Interactive maps" },
   { id: "dashboard", label: "Dashboard", description: "Summary statistics" },
   { id: "opportunities", label: "Leads", description: "Conversion opportunities" },
+  { id: "intelligence", label: "Intelligence", description: "Competitive intelligence" },
   { id: "rebates", label: "Rebates", description: "Calculate incentives" },
 ];
 
 export default function Home() {
+  // View state
+  const [view, setView] = useState<ViewMode>("maps");
+  const [mapType, setMapType] = useState<MapType>("emissions");
+  
   // Emissions state
   const [selectedSegments, setSelectedSegments] = useState<Segment[]>(DEFAULT_SEGMENTS);
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
-  const [view, setView] = useState<ViewMode>("map");
   const [energySourceFilter, setEnergySourceFilter] = useState<EnergySourceFilter>(DEFAULT_ENERGY_FILTER);
 
   // Projects state
@@ -99,21 +104,23 @@ export default function Home() {
   const handleCommunitySelect = useCallback((communityOrId: { id: string } | string) => {
     const id = typeof communityOrId === "string" ? communityOrId : communityOrId.id;
     setSelectedCommunityId(id);
-    if (view !== "map") setView("map");
-  }, [view]);
+    if (view !== "maps") setView("maps");
+    if (mapType !== "emissions") setMapType("emissions");
+  }, [view, mapType]);
 
   const handleCommunitySelectById = useCallback((id: string) => {
     setSelectedCommunityId(id);
-    if (view !== "map") setView("map");
-  }, [view]);
+    if (view !== "maps") setView("maps");
+    if (mapType !== "emissions") setMapType("emissions");
+  }, [view, mapType]);
 
   const handleProjectSelect = useCallback((projectId: string) => {
     setSelectedProjectId(projectId);
   }, []);
 
   // Determine which sidebar to show
-  const showEmissionFilters = view === "map" || view === "dashboard";
-  const showProjectFilters = view === "projects";
+  const showEmissionFilters = (view === "maps" && mapType === "emissions") || view === "dashboard";
+  const showProjectFilters = view === "maps" && mapType === "projects";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -200,140 +207,171 @@ export default function Home() {
         {/* Center - Main Content */}
         <div className="flex-1 flex flex-col relative">
           <AnimatePresence mode="wait">
-            {view === "map" && (
+            {view === "maps" && (
               <motion.div
-                key="map"
+                key="maps"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex-1 relative"
+                className="flex-1 flex flex-col relative"
               >
-                {/* Search Bar Overlay on Map */}
-                <div className="absolute top-4 left-4 right-4 md:left-4 md:right-auto md:w-80 z-10">
-                  <SearchBar
-                    onSelectCommunity={handleCommunitySelectById}
-                    placeholder="Search communities on map..."
-                  />
+                {/* Map Type Toggle */}
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
+                  <div className="card p-1 bg-white/95 backdrop-blur-sm flex gap-1">
+                    <button
+                      onClick={() => setMapType("emissions")}
+                      className={`px-4 py-2 text-xs font-medium rounded transition-colors ${
+                        mapType === "emissions"
+                          ? "bg-black text-white"
+                          : "text-gray-600 hover:text-black hover:bg-gray-100"
+                      }`}
+                    >
+                      Emissions Map
+                    </button>
+                    <button
+                      onClick={() => setMapType("projects")}
+                      className={`px-4 py-2 text-xs font-medium rounded transition-colors ${
+                        mapType === "projects"
+                          ? "bg-black text-white"
+                          : "text-gray-600 hover:text-black hover:bg-gray-100"
+                      }`}
+                    >
+                      Projects Map
+                    </button>
+                  </div>
                 </div>
 
-                {loadingCommunities ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
-                    <div className="text-center">
-                      <div className="w-8 h-8 border-2 border-black border-t-transparent animate-spin mx-auto mb-4" />
-                      <p className="text-sm text-gray-500">Loading communities...</p>
+                {/* Emissions Map */}
+                {mapType === "emissions" && (
+                  <div className="flex-1 relative">
+                    {/* Search Bar - positioned below toggle */}
+                    <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[400px] max-w-[calc(100%-2rem)] z-10">
+                      <SearchBar
+                        onSelectCommunity={handleCommunitySelectById}
+                        placeholder="Search communities on map..."
+                      />
+                    </div>
+
+                    {loadingCommunities ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+                        <div className="text-center">
+                          <div className="w-8 h-8 border-2 border-black border-t-transparent animate-spin mx-auto mb-4" />
+                          <p className="text-sm text-gray-500">Loading communities...</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <EmissionsMap
+                        communities={communities || []}
+                        threshold={threshold}
+                        onCommunitySelect={handleCommunitySelect}
+                        selectedCommunityId={selectedCommunityId}
+                      />
+                    )}
+
+                    {/* Stats Overlay */}
+                    <div className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-64">
+                      <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3 }}
+                        className="card p-4 bg-white/95 backdrop-blur-sm"
+                      >
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 uppercase tracking-wider">Communities</span>
+                            <span className="data-value font-medium">{communities?.length || 0}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 uppercase tracking-wider">Exceeding</span>
+                            <span className="data-value font-medium status-red">
+                              {communities?.filter((c) => c.exceedsThreshold).length || 0}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 uppercase tracking-wider">Below</span>
+                            <span className="data-value font-medium status-green">
+                              {communities?.filter((c) => !c.exceedsThreshold).length || 0}
+                            </span>
+                          </div>
+                        </div>
+                      </motion.div>
                     </div>
                   </div>
-                ) : (
-                  <EmissionsMap
-                    communities={communities || []}
-                    threshold={threshold}
-                    onCommunitySelect={handleCommunitySelect}
-                    selectedCommunityId={selectedCommunityId}
-                  />
                 )}
 
-                {/* Stats Overlay */}
-                <div className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-64">
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="card p-4 bg-white/95 backdrop-blur-sm"
-                  >
-                    <div className="space-y-2 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 uppercase tracking-wider">Communities</span>
-                        <span className="data-value font-medium">{communities?.length || 0}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 uppercase tracking-wider">Exceeding</span>
-                        <span className="data-value font-medium status-red">
-                          {communities?.filter((c) => c.exceedsThreshold).length || 0}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 uppercase tracking-wider">Below</span>
-                        <span className="data-value font-medium status-green">
-                          {communities?.filter((c) => !c.exceedsThreshold).length || 0}
-                        </span>
+                {/* Projects Map */}
+                {mapType === "projects" && (
+                  <div className="flex-1 relative">
+                    {/* Search Bar - positioned below toggle */}
+                    <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[400px] max-w-[calc(100%-2rem)] z-10">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Search projects, developers..."
+                          value={projectSearchQuery}
+                          onChange={(e) => setProjectSearchQuery(e.target.value)}
+                          className="input w-full pl-10"
+                        />
+                        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
                       </div>
                     </div>
-                  </motion.div>
-                </div>
-              </motion.div>
-            )}
 
-            {view === "projects" && (
-              <motion.div
-                key="projects"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex-1 relative"
-              >
-                {/* Search Bar Overlay */}
-                <div className="absolute top-4 left-4 right-4 md:left-4 md:right-auto md:w-80 z-10">
-                  <input
-                    type="text"
-                    placeholder="Search projects, developers..."
-                    value={projectSearchQuery}
-                    onChange={(e) => setProjectSearchQuery(e.target.value)}
-                    className="input w-full"
-                  />
-                </div>
+                    {loadingProjects ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+                        <div className="text-center">
+                          <div className="w-8 h-8 border-2 border-black border-t-transparent animate-spin mx-auto mb-4" />
+                          <p className="text-sm text-gray-500">Loading projects...</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <ProjectsMap
+                        projects={projects || []}
+                        onProjectSelect={handleProjectSelect}
+                        selectedProjectId={selectedProjectId}
+                      />
+                    )}
 
-                {loadingProjects ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
-                    <div className="text-center">
-                      <div className="w-8 h-8 border-2 border-black border-t-transparent animate-spin mx-auto mb-4" />
-                      <p className="text-sm text-gray-500">Loading projects...</p>
+                    {/* Project Stats Overlay */}
+                    <div className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-72">
+                      <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3 }}
+                        className="card p-4 bg-white/95 backdrop-blur-sm"
+                      >
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 uppercase tracking-wider">Projects</span>
+                            <span className="data-value font-medium">{projects?.length || 0}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 uppercase tracking-wider">Total Value</span>
+                            <span className="data-value font-bold">
+                              ${projectStats?.totalValue ? (projectStats.totalValue >= 1000 
+                                ? `${(projectStats.totalValue / 1000).toFixed(1)}B` 
+                                : `${projectStats.totalValue.toLocaleString()}M`)
+                                : "0"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 uppercase tracking-wider">Proposed</span>
+                            <span className="data-value font-medium text-amber-600">
+                              {projectStats?.byStatus.find(s => s.status === "Proposed")?.count || 0}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 uppercase tracking-wider">Under Construction</span>
+                            <span className="data-value font-medium text-green-600">
+                              {projectStats?.byStatus.find(s => s.status === "Construction started")?.count || 0}
+                            </span>
+                          </div>
+                        </div>
+                      </motion.div>
                     </div>
                   </div>
-                ) : (
-                  <ProjectsMap
-                    projects={projects || []}
-                    onProjectSelect={handleProjectSelect}
-                    selectedProjectId={selectedProjectId}
-                  />
                 )}
-
-                {/* Project Stats Overlay */}
-                <div className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-72">
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="card p-4 bg-white/95 backdrop-blur-sm"
-                  >
-                    <div className="space-y-2 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 uppercase tracking-wider">Projects</span>
-                        <span className="data-value font-medium">{projects?.length || 0}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 uppercase tracking-wider">Total Value</span>
-                        <span className="data-value font-bold">
-                          ${projectStats?.totalValue ? (projectStats.totalValue >= 1000 
-                            ? `${(projectStats.totalValue / 1000).toFixed(1)}B` 
-                            : `${projectStats.totalValue.toLocaleString()}M`)
-                            : "0"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 uppercase tracking-wider">Proposed</span>
-                        <span className="data-value font-medium text-amber-600">
-                          {projectStats?.byStatus.find(s => s.status === "Proposed")?.count || 0}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 uppercase tracking-wider">Under Construction</span>
-                        <span className="data-value font-medium text-green-600">
-                          {projectStats?.byStatus.find(s => s.status === "Construction started")?.count || 0}
-                        </span>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
               </motion.div>
             )}
 
@@ -372,8 +410,20 @@ export default function Home() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto"
-              >
+          >
                 <RebateCalculator />
+              </motion.div>
+            )}
+
+            {view === "intelligence" && (
+              <motion.div
+                key="intelligence"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex-1 overflow-y-auto"
+              >
+                <CompetitiveIntelligence />
               </motion.div>
             )}
           </AnimatePresence>
@@ -381,7 +431,7 @@ export default function Home() {
 
         {/* Right Sidebar - Community Detail */}
         <AnimatePresence>
-          {selectedCommunityId && view !== "projects" && (
+          {selectedCommunityId && view === "maps" && mapType === "emissions" && (
             <motion.aside
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 384, opacity: 1 }}
@@ -403,7 +453,7 @@ export default function Home() {
 
         {/* Project Detail Overlay */}
         <AnimatePresence>
-          {selectedProjectId && view === "projects" && (
+          {selectedProjectId && view === "maps" && mapType === "projects" && (
             <ProjectDetail
               projectId={selectedProjectId}
               onClose={() => setSelectedProjectId(null)}

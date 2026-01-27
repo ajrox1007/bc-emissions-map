@@ -107,27 +107,12 @@ model MajorProject {
   @@index([region])
 }
 
-// AI Chatbot Models
-model UploadedDocument {
-  id        String   @id @default(uuid())
-  filename  String
-  filepath  String?  // Path to stored file or identifier in external storage
-  mimetype  String
-  size      Int
-  category  String?
-  summary   String?  // AI-generated summary of the document
-  content   String?  // Store actual content for RAG-like inference
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([category])
-}
-
+// Chatbot Models
 model Conversation {
-  id        String   @id @default(uuid())
-  title     String   @default("New Conversation")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String    @id @default(uuid())
+  title     String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   messages  Message[]
 }
 
@@ -137,7 +122,96 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           String
   content        String
-  isUser         Boolean     @default(true) // Indicates if the message was sent by the user
-  researchMode   Boolean     @default(false) // Indicates if research mode was active for this message
   timestamp      DateTime    @default(now())
+  researchMode   Boolean     @default(false)
+
+  @@index([conversationId])
+}
+
+model UploadedDocument {
+  id        String    @id @default(uuid())
+  filename  String
+  mimetype  String
+  size      Int
+  content   String?
+  summary   String?
+  category  String?
+  filepath  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Competitive Intelligence Models
+model Competitor {
+  id                     String   @id @default(uuid())
+  name                   String
+  logoUrl                String?
+  territory              String   // JSON array stored as string
+  estimatedMarketShare   Float?   @default(0)
+  manufacturersRepresented String? // JSON array stored as string
+  keyPersonnel           String?  // JSON array stored as string
+  pricingPositioning     String?
+  strengths              String?  // JSON array stored as string
+  weaknesses             String?  // JSON array stored as string
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  intelligence CompetitorIntelligence[]
+  battlecard   Battlecard?
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model CompetitorIntelligence {
+  id             String   @id @default(uuid())
+  competitorId   String
+  category       String   // partnership, personnel, pricing, service, marketing, news
+  title          String
+  description    String
+  source         String?
+  importance     String   @default("medium") // high, medium, low
+  dateDiscovered DateTime @default(now())
+  createdBy      String?
+  pinned         Boolean  @default(false)
+  dismissed      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  competitor Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  comments   IntelligenceComment[]
+
+  @@index([competitorId])
+  @@index([category])
+  @@index([importance])
+  @@index([pinned])
+  @@index([dismissed])
+}
+
+model IntelligenceComment {
+  id             String   @id @default(uuid())
+  intelligenceId String
+  userName       String
+  commentText    String
+  createdAt      DateTime @default(now())
+
+  intelligence CompetitorIntelligence @relation(fields: [intelligenceId], references: [id], onDelete: Cascade)
+
+  @@index([intelligenceId])
+}
+
+model Battlecard {
+  id           String   @id @default(uuid())
+  competitorId String   @unique
+  version      Int      @default(1)
+  advantages   String?  // JSON array stored as string
+  objections   String?  // JSON array stored as string
+  weaknesses   String?  // JSON array stored as string
+  pricingNotes String?
+  recentUpdatesSummary String?
+  lastUpdated  DateTime @default(now())
+  updatedBy    String?
+
+  competitor Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
 }
