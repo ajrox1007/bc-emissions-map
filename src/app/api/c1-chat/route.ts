@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 // Perplexity API configuration
-const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
+// Using sonar-pro for deep research capabilities
+const PERPLEXITY_CHAT_API_URL = "https://api.perplexity.ai/chat/completions";
 
 // System prompt with comprehensive data context
 const SYSTEM_PROMPT = `You are an AI assistant for the BC Emissions Interactive Map application, designed for HVAC business intelligence in British Columbia.
@@ -221,11 +222,6 @@ export async function POST(request: NextRequest) {
 
     const apiKey = process.env.PERPLEXITY_API_KEY;
     
-    // Debug logging (remove in production)
-    console.log("API Key exists:", !!apiKey);
-    console.log("API Key length:", apiKey?.length || 0);
-    console.log("API Key prefix:", apiKey?.substring(0, 8) || "none");
-    
     if (!apiKey) {
       return NextResponse.json(
         { error: "Perplexity API key not configured. Please add PERPLEXITY_API_KEY to your .env.local file." },
@@ -260,104 +256,125 @@ export async function POST(request: NextRequest) {
       },
     ];
 
-    // Build request body with optional image parameters
-    // Using very low temperature and top_p for maximum consistency/reproducibility
-    const requestBody: any = {
-      model: "sonar-reasoning-pro",
-      messages: fullMessages,
-      temperature: 0, // Zero temperature = deterministic, same input = same output
-      max_tokens: 6000,
-      top_p: 0.1, // Very low top_p for consistent results
-      presence_penalty: 0, // No penalty for repeating content
-      frequency_penalty: 0, // No penalty for frequency
-    };
+    // Try models in order: sonar-pro, sonar
+    const modelsToTry = ["sonar-pro", "sonar"];
+    let lastError = "";
+    let successfulModel = "";
 
-    // Add image support if requested
-    if (return_images) {
-      requestBody.return_images = true;
-      if (image_domain_filter && Array.isArray(image_domain_filter)) {
-        requestBody.image_domain_filter = image_domain_filter.slice(0, 10); // Max 10 entries
+    for (const model of modelsToTry) {
+      const requestBody: any = {
+        model,
+        messages: fullMessages,
+        temperature: 0,
+        max_tokens: 6000,
+        top_p: 0.1,
+        presence_penalty: 0,
+        frequency_penalty: 0,
+      };
+
+      // Add image support if requested
+      if (return_images) {
+        requestBody.return_images = true;
+        if (image_domain_filter && Array.isArray(image_domain_filter)) {
+          requestBody.image_domain_filter = image_domain_filter.slice(0, 10);
+        }
+        if (image_format_filter && Array.isArray(image_format_filter)) {
+          requestBody.image_format_filter = image_format_filter.slice(0, 10);
+        }
       }
-      if (image_format_filter && Array.isArray(image_format_filter)) {
-        requestBody.image_format_filter = image_format_filter.slice(0, 10); // Max 10 entries
-      }
-    }
 
-    const response = await fetch(PERPLEXITY_API_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Perplexity API error:", errorText);
-      return NextResponse.json(
-        { error: `Perplexity API error: ${response.status}` },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    const assistantContent = data.choices?.[0]?.message?.content || "";
-
-    // Save conversation to database
-    try {
-      let conversation = await prisma.conversation.findFirst({
-        orderBy: { updatedAt: "desc" },
-      });
-
-      if (!conversation || messages.length <= 1) {
-        conversation = await prisma.conversation.create({
-          data: {
-            title: userQuery.substring(0, 50) || "New Conversation",
+      try {
+        const response = await fetch(PERPLEXITY_CHAT_API_URL, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify(requestBody),
         });
+
+        if (response.ok) {
+          const data = await response.json();
+          let assistantContent = data.choices?.[0]?.message?.content || "";
+
+          // Strip thinking tags
+          assistantContent = assistantContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
+          assistantContent = assistantContent.replace(/<think>[\s\S]*/gi, '');
+          assistantContent = assistantContent.trim();
+
+          successfulModel = model;
+
+          // Save conversation to database
+          try {
+            let conversation = await prisma.conversation.findFirst({
+              orderBy: { updatedAt: "desc" },
+            });
+
+            if (!conversation || messages.length <= 1) {
+              conversation = await prisma.conversation.create({
+                data: {
+                  title: userQuery.substring(0, 50) || "New Conversation",
+                },
+              });
+            }
+
+            // Save user message
+            await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                role: "user",
+                content: userQuery,
+              },
+            });
+
+            // Save assistant message
+            await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                role: "assistant",
+                content: assistantContent,
+              },
+            });
+          } catch (dbError) {
+            console.error("Error saving to database:", dbError);
+          }
+
+          // Return in OpenAI-compatible format with images if available
+          return NextResponse.json({
+            id: data.id || `chatcmpl-${Date.now()}`,
+            object: "chat.completion",
+            created: Math.floor(Date.now() / 1000),
+            model: successfulModel,
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: assistantContent,
+                },
+                finish_reason: "stop",
+              },
+            ],
+            citations: data.citations || [],
+            images: data.images || [],
+          });
+        } else {
+          const errorText = await response.text();
+          console.error(`Model ${model} failed:`, response.status, errorText);
+          lastError = `${model}: ${response.status}`;
+        }
+      } catch (fetchError: any) {
+        console.error(`Model ${model} exception:`, fetchError);
+        lastError = `${model}: ${fetchError.message}`;
       }
-
-      // Save user message
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: "user",
-          content: userQuery,
-        },
-      });
-
-      // Save assistant message
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: "assistant",
-          content: assistantContent,
-        },
-      });
-    } catch (dbError) {
-      console.error("Error saving to database:", dbError);
     }
 
-    // Return in OpenAI-compatible format with images if available
-    return NextResponse.json({
-      id: data.id || `chatcmpl-${Date.now()}`,
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
-      model: "sonar-reasoning-pro",
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: "assistant",
-            content: assistantContent,
-          },
-          finish_reason: "stop",
-        },
-      ],
-      citations: data.citations || [],
-      images: data.images || [], // Include images if returned by Sonar
-    });
+    // All models failed
+    return NextResponse.json(
+      { error: `All models failed. Last error: ${lastError}` },
+      { status: 500 }
+    );
+
   } catch (error: any) {
     console.error("Chat API Error:", error);
     return NextResponse.json(

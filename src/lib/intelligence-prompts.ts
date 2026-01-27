@@ -30,7 +30,7 @@ export const RESEARCH_PROMPTS: ResearchPrompt[] = [
     name: "Product & Strategy Tracking",
     description: "Recent announcements, product launches, and strategic moves",
     cadence: "daily",
-    template: `Research {COMPETITOR_NAME}'s recent activities in the HVAC industry (2025-2026).
+    template: `Research {COMPETITOR_NAME}'s recent activities in the HVAC industry with a Canada-first focus (2025-2026).
 
 Provide a comprehensive analysis covering:
 ## Product Launches
@@ -40,7 +40,7 @@ Provide a comprehensive analysis covering:
 
 ## Strategic Moves
 - Pricing changes or service model shifts
-- Market expansions or geographic focus
+- Market expansions or geographic focus (especially Canada/BC)
 - Major announcements
 
 ## Technology & Partnerships
@@ -48,6 +48,7 @@ Provide a comprehensive analysis covering:
 - R&D developments
 - Industry collaborations
 
+If Canada-specific information is limited, clearly state "No Canada-specific data found" and explain implications for Canada/BC.
 Include specific dates, figures, and cite all sources with [1], [2] notation.`,
     variables: ["COMPETITOR_NAME"],
   },
@@ -56,14 +57,14 @@ Include specific dates, figures, and cite all sources with [1], [2] notation.`,
     name: "Market Trends & Innovation",
     description: "Emerging trends in HVAC market",
     cadence: "daily",
-    template: `What are the top emerging trends in the HVAC market as of January 2026? Focus on:
+    template: `What are the top emerging trends in the HVAC market in Canada as of January 2026? Focus on:
 - Energy efficiency innovations
 - Smart controls and IoT integration
 - Heat pump adoption rates
 - AI-driven HVAC systems
-- Regulatory changes impacting the industry
+- Regulatory changes impacting the industry (federal + provincial, especially BC)
 
-Which companies (Daikin, Carrier, Trane, Johnson Controls, AAON, Rheem, Mitsubishi Electric, LG Electronics) are leading in each area?
+Which companies (Daikin, Carrier, Trane, Johnson Controls, AAON, Rheem, Mitsubishi Electric, LG Electronics) are leading in each area in Canada or have notable Canadian initiatives?
 
 Return as JSON:
 {
@@ -84,12 +85,12 @@ Return as JSON:
     name: "Competitive Positioning Analysis",
     description: "Compare market positioning between competitors",
     cadence: "weekly",
-    template: `Compare the market positioning of {COMPETITOR_A}, {COMPETITOR_B}, and {COMPETITOR_C} in the HVAC sector. Analyze:
+    template: `Compare the market positioning of {COMPETITOR_A}, {COMPETITOR_B}, and {COMPETITOR_C} in the HVAC sector with a Canada-first focus. Analyze:
 - Target customer segments
 - Pricing strategies
 - Key differentiators
-- Geographic focus areas
-- Customer satisfaction metrics or reviews
+- Geographic focus areas (Canada/BC emphasis)
+- Customer satisfaction metrics or reviews (Canada preferred)
 
 Return as JSON:
 {
@@ -113,7 +114,7 @@ Return as JSON:
     name: "Customer Pain Points",
     description: "Common complaints and unmet needs",
     cadence: "weekly",
-    template: `What are the most common complaints and unmet needs from HVAC customers (residential/commercial facility managers) in 2025-2026? Based on customer reviews, forum discussions, and industry feedback, what solutions are competitors NOT addressing well?
+    template: `What are the most common complaints and unmet needs from HVAC customers in Canada (residential/commercial facility managers) in 2025-2026? Based on Canadian customer reviews, forum discussions, and industry feedback, what solutions are competitors NOT addressing well?
 
 Return as JSON:
 {
@@ -136,7 +137,7 @@ Return as JSON:
     name: "Market Gaps & Opportunities",
     description: "Underserved segments and market opportunities",
     cadence: "weekly",
-    template: `Identify underserved segments or gaps in the North American HVAC market as of 2026. Where are smaller players or new entrants finding success that larger competitors are overlooking?
+    template: `Identify underserved segments or gaps in the Canadian HVAC market as of 2026. Where are smaller players or new entrants finding success in Canada that larger competitors are overlooking?
 
 Return as JSON:
 {
@@ -159,7 +160,7 @@ Return as JSON:
     name: "Financial & Performance Data",
     description: "Revenue, market share, and strategic direction",
     cadence: "monthly",
-    template: `Provide recent financial performance, market share data, and strategic direction for {COMPANY_NAME} in the HVAC sector. Include specific numbers where available.
+    template: `Provide recent financial performance, market share data, and strategic direction for {COMPANY_NAME} in the HVAC sector with a Canada-first focus. Include specific numbers where available, especially for Canada or Canadian operations.
 
 Return as JSON with NUMERIC values where possible:
 {
@@ -212,7 +213,7 @@ Return as JSON with NUMERIC values where possible:
     name: "Regulatory & Compliance",
     description: "Regulatory changes affecting this competitor",
     cadence: "monthly",
-    template: `What regulatory changes, tariffs, refrigerant restrictions, or energy code updates are most relevant to {COMPETITOR_NAME} and their business in 2025-2026? How is {COMPETITOR_NAME} specifically responding or positioned?
+    template: `What regulatory changes, tariffs, refrigerant restrictions, or energy code updates are most relevant to {COMPETITOR_NAME} and their business in Canada (especially BC) in 2025-2026? How is {COMPETITOR_NAME} specifically responding or positioned?
 
 Focus on regulations that directly impact {COMPETITOR_NAME}'s:
 - Product lines and offerings
@@ -243,7 +244,7 @@ If no specific regulatory information is found for {COMPETITOR_NAME}, indicate t
     name: "Partnerships & M&A Activity",
     description: "Recent partnerships, joint ventures, and acquisitions",
     cadence: "weekly",
-    template: `Search for any partnerships, joint ventures, acquisitions, or strategic alliances specifically involving {COMPETITOR_NAME} in the HVAC industry. Include:
+    template: `Search for any partnerships, joint ventures, acquisitions, or strategic alliances specifically involving {COMPETITOR_NAME} in the HVAC industry, prioritizing Canadian activity. Include:
 - Any companies they have acquired or been acquired by
 - Distribution agreements or manufacturer partnerships
 - Joint ventures with other companies
@@ -276,7 +277,7 @@ IMPORTANT: Only include partnerships that directly involve {COMPETITOR_NAME}. Do
     name: "Sales & Marketing Strategy",
     description: "Marketing approach and channel strategy",
     cadence: "daily",
-    template: `Analyze {COMPETITOR_NAME}'s marketing and sales approach in 2025-2026:
+    template: `Analyze {COMPETITOR_NAME}'s marketing and sales approach in 2025-2026 with a Canada-first lens:
 - Key messaging and positioning
 - Target audience segments
 - Channel strategy (direct, distributors, contractors)
@@ -305,7 +306,7 @@ Return as JSON:
     name: "Technology Roadmap",
     description: "Technology priorities and product roadmaps",
     cadence: "monthly",
-    template: `What are the stated or rumored technology priorities and product roadmaps for {COMPANY_NAME} in HVAC? Focus on:
+    template: `What are the stated or rumored technology priorities and product roadmaps for {COMPANY_NAME} in HVAC with a Canada-first focus? Focus on:
 - AI or machine learning capabilities
 - IoT/smart home integration
 - Sustainability initiatives
