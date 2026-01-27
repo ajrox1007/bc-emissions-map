@@ -4,11 +4,12 @@ import { prisma } from "@/lib/prisma";
 // GET /api/intelligence/updates/[id] - Get single update
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const update = await prisma.competitorIntelligence.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         competitor: {
           select: {
@@ -46,13 +47,14 @@ export async function GET(
 // PUT /api/intelligence/updates/[id] - Update an intelligence update
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
 
     const update = await prisma.competitorIntelligence.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         category: body.category,
         title: body.title,
@@ -95,11 +97,12 @@ export async function PUT(
 // DELETE /api/intelligence/updates/[id] - Delete an intelligence update
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await prisma.competitorIntelligence.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ success: true });
@@ -112,14 +115,15 @@ export async function DELETE(
 // POST /api/intelligence/updates/[id]/comment - Add comment to update
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
 
     const comment = await prisma.intelligenceComment.create({
       data: {
-        intelligenceId: params.id,
+        intelligenceId: id,
         userName: body.userName || "Anonymous",
         commentText: body.commentText,
       },

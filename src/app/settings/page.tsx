@@ -371,11 +371,11 @@ export default function SettingsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-lg">
-                            {doc.mimeType.includes("excel") || doc.mimeType.includes("spreadsheet")
+                            {doc.mimetype.includes("excel") || doc.mimetype.includes("spreadsheet")
                               ? "📊"
-                              : doc.mimeType.includes("pdf")
+                              : doc.mimetype.includes("pdf")
                               ? "📕"
-                              : doc.mimeType.includes("word")
+                              : doc.mimetype.includes("word")
                               ? "📝"
                               : "📄"}
                           </span>

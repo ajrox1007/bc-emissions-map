@@ -4,11 +4,12 @@ import { prisma } from "@/lib/prisma";
 // GET /api/intelligence/competitors/[id] - Get single competitor
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const competitor = await prisma.competitor.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         intelligence: {
           orderBy: { dateDiscovered: "desc" },
@@ -45,13 +46,14 @@ export async function GET(
 // PUT /api/intelligence/competitors/[id] - Update competitor
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
 
     const competitor = await prisma.competitor.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         name: body.name,
         logoUrl: body.logoUrl,
@@ -89,11 +91,12 @@ export async function PUT(
 // DELETE /api/intelligence/competitors/[id] - Delete competitor
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await prisma.competitor.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ success: true });

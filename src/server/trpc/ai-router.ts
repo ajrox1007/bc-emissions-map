@@ -13,7 +13,7 @@ export const aiRouter = router({
       include: {
         messages: {
           take: 1,
-          orderBy: { createdAt: "desc" },
+          orderBy: { timestamp: "desc" },
         },
       },
     });
@@ -27,7 +27,7 @@ export const aiRouter = router({
         where: { id: input.id },
         include: {
           messages: {
-            orderBy: { createdAt: "asc" },
+            orderBy: { timestamp: "asc" },
           },
         },
       });
@@ -59,7 +59,7 @@ export const aiRouter = router({
       const document = await ctx.prisma.uploadedDocument.create({
         data: {
           filename,
-          mimeType,
+          mimetype: mimeType,
           size: content.length,
           content: content.substring(0, 50000),
           category,
@@ -118,7 +118,7 @@ export const aiRouter = router({
       select: {
         id: true,
         filename: true,
-        mimeType: true,
+        mimetype: true,
         size: true,
         summary: true,
         category: true,
