@@ -4,11 +4,17 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, TableCell, TableRow, Table, WidthType, BorderStyle } from "docx";
+import { saveAs } from "file-saver";
+import jsPDF from "jspdf";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   files?: UploadedFile[];
+  thinking?: string;
+  researchMode?: boolean;
+  citations?: APACitation[];
 }
 
 interface UploadedFile {
@@ -21,6 +27,15 @@ interface UploadedFile {
 interface Citation {
   url: string;
   title?: string;
+}
+
+interface APACitation {
+  number: number;
+  url: string;
+  title?: string;
+  author?: string;
+  date?: string;
+  siteName?: string;
 }
 
 // Available models from Perplexity API
@@ -66,13 +81,12 @@ const SUPPORTED_FILE_TYPES = {
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-// Reasoning steps for the thinking animation
-const REASONING_STEPS = [
-  { id: 1, icon: "🔍", text: "Searching the web for relevant information...", duration: 2000 },
-  { id: 2, icon: "📊", text: "Analyzing data sources and citations...", duration: 2500 },
-  { id: 3, icon: "🧠", text: "Processing and reasoning through findings...", duration: 3000 },
-  { id: 4, icon: "✨", text: "Synthesizing comprehensive response...", duration: 2000 },
-  { id: 5, icon: "📝", text: "Formatting and finalizing answer...", duration: 1500 },
+// Simulated thinking steps when no real thinking is available
+const FALLBACK_THINKING_STEPS = [
+  "Analyzing your question and context...",
+  "Searching for relevant information...",
+  "Processing data and findings...",
+  "Formulating response...",
 ];
 
 export default function AIChatbot() {
@@ -86,8 +100,10 @@ export default function AIChatbot() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
-  const [currentReasoningStep, setCurrentReasoningStep] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
+  const [researchMode, setResearchMode] = useState(false);
+  const [currentThinking, setCurrentThinking] = useState<string>("");
+  const [thinkingSteps, setThinkingSteps] = useState<string[]>([]);
+  const [exportingIndex, setExportingIndex] = useState<number | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -102,50 +118,35 @@ export default function AIChatbot() {
     scrollToBottom();
   }, [messages]);
 
-  // Reasoning steps animation
+  // Fallback thinking animation when no real thinking is streamed
   useEffect(() => {
     if (!isLoading) {
-      setCurrentReasoningStep(0);
-      setCompletedSteps([]);
+      // Clear thinking when done loading
+      if (!currentThinking) {
+        setThinkingSteps([]);
+      }
       return;
     }
 
-    // Start with first step
-    setCurrentReasoningStep(0);
-    setCompletedSteps([]);
+    // Only show fallback steps if no real thinking is being displayed
+    if (currentThinking) return;
 
-    const stepTimers: NodeJS.Timeout[] = [];
-    let cumulativeTime = 0;
-
-    REASONING_STEPS.forEach((step, index) => {
-      // Timer to mark current step as active
-      const activateTimer = setTimeout(() => {
-        setCurrentReasoningStep(index);
-      }, cumulativeTime);
-      stepTimers.push(activateTimer);
-
-      // Timer to mark step as completed (before moving to next)
-      const completeTimer = setTimeout(() => {
-        setCompletedSteps(prev => [...prev, step.id]);
-      }, cumulativeTime + step.duration - 300);
-      stepTimers.push(completeTimer);
-
-      cumulativeTime += step.duration;
-    });
-
-    // Loop back to continue animation if still loading
-    const loopTimer = setTimeout(() => {
-      if (isLoading) {
-        setCurrentReasoningStep(0);
-        setCompletedSteps([]);
+    let stepIndex = 0;
+    const intervalId = setInterval(() => {
+      if (stepIndex < FALLBACK_THINKING_STEPS.length) {
+        setThinkingSteps(prev => [...prev, FALLBACK_THINKING_STEPS[stepIndex]]);
+        stepIndex++;
+      } else {
+        // Loop through steps
+        setThinkingSteps([]);
+        stepIndex = 0;
       }
-    }, cumulativeTime + 500);
-    stepTimers.push(loopTimer);
+    }, 2000);
 
     return () => {
-      stepTimers.forEach(timer => clearTimeout(timer));
+      clearInterval(intervalId);
     };
-  }, [isLoading]);
+  }, [isLoading, currentThinking]);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -262,6 +263,388 @@ export default function AIChatbot() {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Convert citations to APA format
+  const convertToAPACitations = (rawCitations: any[]): APACitation[] => {
+    if (!rawCitations || !Array.isArray(rawCitations)) return [];
+    
+    return rawCitations.map((citation, index) => {
+      const url = typeof citation === 'string' ? citation : citation.url || citation;
+      let siteName = "Unknown";
+      let title = "Untitled";
+      
+      try {
+        const urlObj = new URL(url);
+        siteName = urlObj.hostname.replace('www.', '');
+        const pathParts = urlObj.pathname.split('/').filter(Boolean);
+        if (pathParts.length > 0) {
+          title = pathParts[pathParts.length - 1]
+            .replace(/-/g, ' ')
+            .replace(/_/g, ' ')
+            .replace(/\.\w+$/, '')
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+        }
+      } catch (e) {}
+      
+      return {
+        number: index + 1,
+        url,
+        title: typeof citation === 'object' && citation.title ? citation.title : title,
+        author: typeof citation === 'object' && citation.author ? citation.author : siteName,
+        date: typeof citation === 'object' && citation.date ? citation.date : new Date().getFullYear().toString(),
+        siteName,
+      };
+    });
+  };
+
+  // Export message to DOCX with proper markdown parsing
+  const exportToDocx = async (content: string, citations: APACitation[] = []) => {
+    try {
+      const children: any[] = [];
+      const lines = content.split('\n');
+      let i = 0;
+
+      // Helper to parse inline markdown (bold, italic, links)
+      const parseInlineMarkdown = (text: string, apaCitations: APACitation[] = []): any[] => {
+        const runs: any[] = [];
+        let remaining = text;
+
+        while (remaining.length > 0) {
+          // Check for citation [1], [2], etc.
+          const citationMatch = remaining.match(/^\[(\d+)\]/);
+          if (citationMatch) {
+            const citationNum = parseInt(citationMatch[1]);
+            const citation = apaCitations.find(c => c.number === citationNum);
+            if (citation) {
+              runs.push(
+                new ExternalHyperlink({
+                  children: [new TextRun({ text: `(${citation.author || citation.siteName}, ${citation.date})`, style: "Hyperlink", size: 22 })],
+                  link: citation.url,
+                })
+              );
+            } else {
+              runs.push(new TextRun({ text: citationMatch[0], size: 22 }));
+            }
+            remaining = remaining.slice(citationMatch[0].length);
+            continue;
+          }
+
+          // Check for bold **text**
+          const boldMatch = remaining.match(/^\*\*(.+?)\*\*/);
+          if (boldMatch) {
+            runs.push(new TextRun({ text: boldMatch[1], bold: true, size: 22 }));
+            remaining = remaining.slice(boldMatch[0].length);
+            continue;
+          }
+
+          // Check for italic *text*
+          const italicMatch = remaining.match(/^\*(.+?)\*/);
+          if (italicMatch) {
+            runs.push(new TextRun({ text: italicMatch[1], italics: true, size: 22 }));
+            remaining = remaining.slice(italicMatch[0].length);
+            continue;
+          }
+
+          // Check for links [text](url)
+          const linkMatch = remaining.match(/^\[(.+?)\]\((.+?)\)/);
+          if (linkMatch) {
+            runs.push(
+              new ExternalHyperlink({
+                children: [new TextRun({ text: linkMatch[1], style: "Hyperlink", size: 22 })],
+                link: linkMatch[2],
+              })
+            );
+            remaining = remaining.slice(linkMatch[0].length);
+            continue;
+          }
+
+          // Regular text - find next special character
+          const nextSpecial = remaining.search(/\*|\[/);
+          if (nextSpecial === -1) {
+            runs.push(new TextRun({ text: remaining, size: 22 }));
+            break;
+          } else if (nextSpecial === 0) {
+            runs.push(new TextRun({ text: remaining[0], size: 22 }));
+            remaining = remaining.slice(1);
+          } else {
+            runs.push(new TextRun({ text: remaining.slice(0, nextSpecial), size: 22 }));
+            remaining = remaining.slice(nextSpecial);
+          }
+        }
+
+        return runs.length > 0 ? runs : [new TextRun({ text: text, size: 22 })];
+      };
+
+      // Title
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: "Research Report", bold: true, size: 36 })],
+          heading: HeadingLevel.TITLE,
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 200 },
+        })
+      );
+
+      // Date
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), italics: true, size: 20 })],
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 400 },
+        })
+      );
+
+      // Parse content
+      while (i < lines.length) {
+        const line = lines[i];
+
+        // Skip empty lines
+        if (!line.trim()) {
+          children.push(new Paragraph({ text: "", spacing: { after: 100 } }));
+          i++;
+          continue;
+        }
+
+        // Headings
+        if (line.startsWith('#### ')) {
+          children.push(new Paragraph({ children: parseInlineMarkdown(line.replace('#### ', ''), citations), heading: HeadingLevel.HEADING_4, spacing: { before: 200, after: 100 } }));
+          i++;
+          continue;
+        }
+        if (line.startsWith('### ')) {
+          children.push(new Paragraph({ children: parseInlineMarkdown(line.replace('### ', ''), citations), heading: HeadingLevel.HEADING_3, spacing: { before: 240, after: 120 } }));
+          i++;
+          continue;
+        }
+        if (line.startsWith('## ')) {
+          children.push(new Paragraph({ children: parseInlineMarkdown(line.replace('## ', ''), citations), heading: HeadingLevel.HEADING_2, spacing: { before: 300, after: 150 } }));
+          i++;
+          continue;
+        }
+        if (line.startsWith('# ')) {
+          children.push(new Paragraph({ children: parseInlineMarkdown(line.replace('# ', ''), citations), heading: HeadingLevel.HEADING_1, spacing: { before: 400, after: 200 } }));
+          i++;
+          continue;
+        }
+
+        // Tables (detect | at start)
+        if (line.trim().startsWith('|') && line.includes('|')) {
+          const tableRows: any[] = [];
+          let j = i;
+          
+          while (j < lines.length && lines[j].trim().startsWith('|')) {
+            const rowLine = lines[j].trim();
+            // Skip separator rows
+            if (rowLine.match(/^\|[-:\s|]+\|$/)) {
+              j++;
+              continue;
+            }
+            
+            const cells = rowLine.split('|').filter(c => c.trim() !== '');
+            const isHeader = j === i;
+            
+            tableRows.push(
+              new TableRow({
+                children: cells.map(cell => 
+                  new TableCell({
+                    children: [new Paragraph({ children: parseInlineMarkdown(cell.trim(), citations) })],
+                    shading: isHeader ? { fill: "E8E8E8" } : undefined,
+                  })
+                ),
+              })
+            );
+            j++;
+          }
+          
+          if (tableRows.length > 0) {
+            children.push(
+              new Table({
+                rows: tableRows,
+                width: { size: 100, type: WidthType.PERCENTAGE },
+              })
+            );
+            children.push(new Paragraph({ text: "", spacing: { after: 200 } }));
+          }
+          i = j;
+          continue;
+        }
+
+        // Bullet points
+        if (line.match(/^[\s]*[-*•]\s/)) {
+          const bulletText = line.replace(/^[\s]*[-*•]\s/, '');
+          children.push(
+            new Paragraph({
+              children: [new TextRun({ text: "• " }), ...parseInlineMarkdown(bulletText, citations)],
+              spacing: { before: 50, after: 50 },
+              indent: { left: 720 },
+            })
+          );
+          i++;
+          continue;
+        }
+
+        // Numbered lists
+        if (line.match(/^[\s]*\d+\.\s/)) {
+          children.push(
+            new Paragraph({
+              children: parseInlineMarkdown(line, citations),
+              spacing: { before: 50, after: 50 },
+              indent: { left: 720 },
+            })
+          );
+          i++;
+          continue;
+        }
+
+        // Regular paragraph
+        children.push(
+          new Paragraph({
+            children: parseInlineMarkdown(line, citations),
+            spacing: { before: 100, after: 100 },
+          })
+        );
+        i++;
+      }
+
+      // References section
+      if (citations.length > 0) {
+        children.push(new Paragraph({ text: "", spacing: { before: 400 } }));
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: "References", bold: true, size: 28 })],
+            heading: HeadingLevel.HEADING_1,
+            spacing: { before: 400, after: 200 },
+          })
+        );
+
+        for (const citation of citations) {
+          children.push(
+            new Paragraph({
+              children: [
+                new ExternalHyperlink({
+                  children: [
+                    new TextRun({ text: `${citation.author || citation.siteName}. (${citation.date}). `, size: 20 }),
+                    new TextRun({ text: citation.title, italics: true, size: 20 }),
+                    new TextRun({ text: `. Retrieved from ${citation.url}`, size: 20, style: "Hyperlink" }),
+                  ],
+                  link: citation.url,
+                }),
+              ],
+              spacing: { before: 80, after: 80 },
+              indent: { left: 720, hanging: 720 },
+            })
+          );
+        }
+      }
+
+      const doc = new Document({ sections: [{ children }] });
+      const blob = await Packer.toBlob(doc);
+      saveAs(blob, `Research_Report_${new Date().toISOString().split('T')[0]}.docx`);
+    } catch (error) {
+      console.error("DOCX export error:", error);
+      alert("Failed to export DOCX. Please try again.");
+    }
+  };
+
+  // Export message to PDF
+  const exportToPdf = async (content: string, citations: APACitation[] = []) => {
+    try {
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 20;
+      const maxWidth = pageWidth - margin * 2;
+      let y = margin;
+
+      // Helper to add text with page breaks
+      const addText = (text: string, fontSize: number, isBold: boolean = false, isItalic: boolean = false) => {
+        pdf.setFontSize(fontSize);
+        pdf.setFont("helvetica", isBold ? "bold" : isItalic ? "italic" : "normal");
+        
+        // Remove markdown formatting for PDF
+        const cleanText = text
+          .replace(/\*\*(.+?)\*\*/g, '$1')
+          .replace(/\*(.+?)\*/g, '$1')
+          .replace(/\[(\d+)\]/g, '[$1]')
+          .replace(/\[(.+?)\]\(.+?\)/g, '$1');
+        
+        const lines = pdf.splitTextToSize(cleanText, maxWidth);
+        for (const line of lines) {
+          if (y > pageHeight - margin) {
+            pdf.addPage();
+            y = margin;
+          }
+          pdf.text(line, margin, y);
+          y += fontSize * 0.4;
+        }
+      };
+
+      // Title
+      pdf.setFontSize(20);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Research Report", pageWidth / 2, y, { align: 'center' });
+      y += 10;
+      
+      pdf.setFontSize(10);
+      pdf.setFont("helvetica", "italic");
+      pdf.text(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), pageWidth / 2, y, { align: 'center' });
+      y += 15;
+
+      // Parse content
+      const lines = content.split('\n');
+      for (const line of lines) {
+        if (!line.trim()) {
+          y += 3;
+          continue;
+        }
+
+        if (line.startsWith('#### ')) {
+          y += 3;
+          addText(line.replace('#### ', ''), 11, true);
+          y += 2;
+        } else if (line.startsWith('### ')) {
+          y += 4;
+          addText(line.replace('### ', ''), 12, true);
+          y += 2;
+        } else if (line.startsWith('## ')) {
+          y += 5;
+          addText(line.replace('## ', ''), 14, true);
+          y += 3;
+        } else if (line.startsWith('# ')) {
+          y += 6;
+          addText(line.replace('# ', ''), 16, true);
+          y += 4;
+        } else if (line.match(/^[\s]*[-*•]\s/)) {
+          addText('  • ' + line.replace(/^[\s]*[-*•]\s/, ''), 10);
+        } else if (line.trim().startsWith('|')) {
+          // Skip table formatting characters in PDF
+          if (!line.match(/^\|[-:\s|]+\|$/)) {
+            addText(line.replace(/\|/g, '  '), 9);
+          }
+        } else {
+          addText(line, 10);
+        }
+      }
+
+      // References
+      if (citations.length > 0) {
+        y += 10;
+        addText('References', 14, true);
+        y += 5;
+        for (const citation of citations) {
+          addText(`${citation.author || citation.siteName}. (${citation.date}). ${citation.title}. ${citation.url}`, 9);
+          y += 2;
+        }
+      }
+
+      pdf.save(`Research_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (error) {
+      console.error("PDF export error:", error);
+      alert("Failed to export PDF. Please try again.");
+    }
+  };
+
   const handleSend = async () => {
     if ((!input.trim() && uploadedFiles.length === 0) || isLoading) return;
 
@@ -269,6 +652,7 @@ export default function AIChatbot() {
       role: "user", 
       content: input,
       files: uploadedFiles.length > 0 ? [...uploadedFiles] : undefined,
+      researchMode,
     };
     
     setMessages((prev) => [...prev, userMessage]);
@@ -277,9 +661,10 @@ export default function AIChatbot() {
     setUploadedFiles([]);
     setIsLoading(true);
     setError(null);
+    setCurrentThinking("");
+    setThinkingSteps([]);
 
     try {
-      // Build the content with file context
       let fullContent = input;
       
       if (filesToSend.length > 0) {
@@ -290,7 +675,7 @@ export default function AIChatbot() {
           } else if (file.type === 'application/pdf') {
             fullContent += `\n[PDF Document: ${file.name}]\n`;
           } else {
-            fullContent += `\n[File: ${file.name}]\n${file.content.slice(0, 50000)}\n`; // Limit text content
+            fullContent += `\n[File: ${file.name}]\n${file.content.slice(0, 50000)}\n`;
           }
         }
       }
@@ -304,6 +689,7 @@ export default function AIChatbot() {
             content: m.content,
           })),
           model: selectedModel,
+          researchMode,
           files: filesToSend.filter(f => f.type.startsWith('image/')).map(f => ({
             type: "image",
             data: f.content,
@@ -317,14 +703,26 @@ export default function AIChatbot() {
 
       const data = await response.json();
       const assistantContent = data.choices?.[0]?.message?.content || data.content || "I couldn't generate a response.";
-
-      if (data.citations) {
+      const thinkingContent = data.thinking || null;
+      const apaCitations = convertToAPACitations(data.citations || []);
+      
+      if (apaCitations.length > 0) {
         setCitations(data.citations);
+      }
+
+      if (thinkingContent) {
+        setCurrentThinking(thinkingContent);
       }
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: assistantContent },
+        { 
+          role: "assistant", 
+          content: assistantContent,
+          thinking: thinkingContent,
+          researchMode: data.researchMode,
+          citations: apaCitations,
+        },
       ]);
     } catch (err: any) {
       console.error("Chat error:", err);
@@ -335,6 +733,7 @@ export default function AIChatbot() {
       ]);
     } finally {
       setIsLoading(false);
+      setCurrentThinking("");
     }
   };
 
@@ -393,6 +792,34 @@ export default function AIChatbot() {
   };
 
   const selectedModelInfo = AVAILABLE_MODELS.find(m => m.id === selectedModel);
+
+  // Convert citation numbers [1], [2] to APA hyperlinks
+  const renderContentWithAPACitations = (content: string, citations: APACitation[] = []) => {
+    if (!citations || citations.length === 0) {
+      return content;
+    }
+
+    // Replace [1], [2], etc. with markdown hyperlinks
+    let processedContent = content;
+    citations.forEach((citation) => {
+      const pattern = new RegExp(`\\[${citation.number}\\]`, 'g');
+      const author = citation.author || citation.siteName || "Source";
+      const year = citation.date || new Date().getFullYear().toString();
+      // Create APA-style in-text citation as a hyperlink
+      const apaLink = `[${author}, ${year}](${citation.url})`;
+      processedContent = processedContent.replace(pattern, apaLink);
+    });
+
+    return processedContent;
+  };
+
+  // Format APA reference list entry
+  const formatAPAReference = (citation: APACitation): string => {
+    const author = citation.author || citation.siteName || "Unknown";
+    const date = citation.date || "n.d.";
+    const title = citation.title || "Untitled";
+    return `${author}. (${date}). *${title}*. Retrieved from ${citation.url}`;
+  };
 
   const MarkdownComponents = {
     h1: ({ children }: any) => (
@@ -547,6 +974,25 @@ export default function AIChatbot() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                {/* Research Mode Toggle */}
+                <button
+                  onClick={() => setResearchMode(!researchMode)}
+                  className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-all ${
+                    researchMode 
+                      ? 'bg-purple-100 text-purple-700 border border-purple-300' 
+                      : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                  title={researchMode ? "Research mode enabled - deeper web search" : "Enable research mode for thorough analysis"}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <span className="font-medium">Research</span>
+                  {researchMode && (
+                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+                  )}
+                </button>
+
                 {/* Model Selector */}
                 <div className="relative">
                   <button
@@ -658,15 +1104,34 @@ export default function AIChatbot() {
                     </h2>
                     <p className="text-gray-500 mb-4 max-w-xl mx-auto">
                       Ask me about BC emissions data, major projects, HVAC opportunities, or market intelligence.
+                      {researchMode && (
+                        <span className="block mt-2 text-purple-600 font-medium">
+                          Research mode is ON - I'll conduct thorough web research for your questions.
+                        </span>
+                      )}
                     </p>
-                    <p className="text-sm text-gray-400 mb-8">
+                    <div className="flex flex-wrap justify-center gap-3 text-sm text-gray-400 mb-8">
                       <span className="inline-flex items-center gap-1">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                         </svg>
-                        Drag & drop files anywhere to upload
+                        Drag & drop files
                       </span>
-                    </p>
+                      <span className="text-gray-300">|</span>
+                      <span className="inline-flex items-center gap-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        Enable Research mode for deep analysis
+                      </span>
+                      <span className="text-gray-300">|</span>
+                      <span className="inline-flex items-center gap-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Context from uploaded docs
+                      </span>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
                       {QUICK_PROMPTS.slice(0, 4).map((prompt, i) => (
                         <button
@@ -708,15 +1173,113 @@ export default function AIChatbot() {
                                   ))}
                                 </div>
                               )}
+                              {msg.researchMode && (
+                                <div className="mt-2 flex items-center gap-1 text-xs text-purple-300">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                  </svg>
+                                  <span>Research mode</span>
+                                </div>
+                              )}
                             </>
                           ) : (
-                            <div className="markdown-content">
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={MarkdownComponents}
-                              >
-                                {msg.content}
-                              </ReactMarkdown>
+                            <div className="space-y-4">
+                              {/* Thinking/Reasoning Section */}
+                              {msg.thinking && (
+                                <details className="group">
+                                  <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                                    <svg className="w-4 h-4 transform transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                    <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                    </svg>
+                                    <span className="font-medium">View AI Thinking Process</span>
+                                    {msg.researchMode && (
+                                      <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">Research</span>
+                                    )}
+                                  </summary>
+                                  <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-100">
+                                    <div className="text-sm text-gray-600 whitespace-pre-wrap font-mono leading-relaxed max-h-96 overflow-y-auto">
+                                      {msg.thinking}
+                                    </div>
+                                  </div>
+                                </details>
+                              )}
+                              
+                              {/* Main Response Content with APA Citations */}
+                              <div className="markdown-content">
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={MarkdownComponents}
+                                >
+                                  {renderContentWithAPACitations(msg.content, msg.citations)}
+                                </ReactMarkdown>
+                              </div>
+
+                              {/* APA References Section */}
+                              {msg.citations && msg.citations.length > 0 && (
+                                <div className="mt-4 pt-4 border-t border-gray-100">
+                                  <details className="group">
+                                    <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                                      <svg className="w-4 h-4 transform transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                      </svg>
+                                      <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                      </svg>
+                                      <span className="font-medium">References ({msg.citations.length})</span>
+                                    </summary>
+                                    <div className="mt-3 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                                      <div className="space-y-2">
+                                        {msg.citations.map((citation) => (
+                                          <div key={citation.number} className="text-xs text-gray-700 leading-relaxed">
+                                            <a
+                                              href={citation.url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="hover:text-blue-600 transition-colors"
+                                            >
+                                              {citation.author || citation.siteName || "Unknown"}. ({citation.date || "n.d."}). <em>{citation.title || "Untitled"}</em>. Retrieved from {citation.url}
+                                            </a>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </details>
+                                </div>
+                              )}
+
+                              {/* Export Buttons */}
+                              <div className="mt-4 pt-4 border-t border-gray-100 flex items-center gap-2">
+                                <span className="text-xs text-gray-400">Export:</span>
+                                <button
+                                  onClick={() => {
+                                    setExportingIndex(i);
+                                    exportToDocx(msg.content, msg.citations || []).finally(() => setExportingIndex(null));
+                                  }}
+                                  disabled={exportingIndex === i}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-50 text-blue-600 rounded hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  {exportingIndex === i ? 'Exporting...' : 'DOCX'}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setExportingIndex(i);
+                                    exportToPdf(msg.content, msg.citations || []).finally(() => setExportingIndex(null));
+                                  }}
+                                  disabled={exportingIndex === i}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 disabled:opacity-50 transition-colors"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  PDF
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -733,139 +1296,121 @@ export default function AIChatbot() {
                           {/* Header with model info */}
                           <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
                             <div className="relative">
-                              <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg flex items-center justify-center">
-                                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                researchMode 
+                                  ? 'bg-gradient-to-br from-purple-500 to-indigo-600' 
+                                  : 'bg-gradient-to-br from-emerald-500 to-teal-600'
+                              }`}>
+                                {researchMode ? (
+                                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                  </svg>
+                                )}
                               </div>
-                              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full animate-pulse" />
+                              <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full animate-pulse ${
+                                researchMode ? 'bg-purple-400' : 'bg-emerald-400'
+                              }`} />
                             </div>
                             <div>
-                              <span className="text-sm font-medium text-gray-900">Thinking with {selectedModelInfo?.name}</span>
+                              <span className="text-sm font-medium text-gray-900">
+                                {researchMode ? 'Deep Research' : 'Thinking'} with {selectedModelInfo?.name}
+                              </span>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-xs text-gray-400">{selectedModelInfo?.provider}</span>
-                                <span className="text-xs text-gray-300">•</span>
-                                <span className="text-xs text-emerald-500 font-medium">Processing</span>
+                                <span className="text-xs text-gray-300">|</span>
+                                <span className={`text-xs font-medium ${researchMode ? 'text-purple-500' : 'text-emerald-500'}`}>
+                                  {researchMode ? 'Research Mode' : 'Processing'}
+                                </span>
                               </div>
                             </div>
                           </div>
 
-                          {/* Reasoning Steps */}
+                          {/* Real Thinking Display */}
                           <div className="space-y-2">
-                            {REASONING_STEPS.map((step, index) => {
-                              const isActive = currentReasoningStep === index;
-                              const isCompleted = completedSteps.includes(step.id);
-                              const isPending = index > currentReasoningStep && !isCompleted;
-
-                              return (
-                                <motion.div
-                                  key={step.id}
-                                  initial={{ opacity: 0, x: -10 }}
-                                  animate={{ 
-                                    opacity: isPending ? 0.4 : 1, 
-                                    x: 0,
-                                    scale: isActive ? 1.02 : 1
-                                  }}
-                                  transition={{ 
-                                    duration: 0.3, 
-                                    delay: index * 0.1,
-                                    scale: { duration: 0.2 }
-                                  }}
-                                  className={`flex items-center gap-3 p-2.5 rounded-lg transition-all duration-300 ${
-                                    isActive 
-                                      ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' 
-                                      : isCompleted 
-                                        ? 'bg-gray-50' 
-                                        : 'bg-transparent'
-                                  }`}
-                                >
-                                  {/* Step indicator */}
-                                  <div className={`relative flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
-                                    isCompleted 
-                                      ? 'bg-emerald-500' 
-                                      : isActive 
-                                        ? 'bg-gradient-to-br from-emerald-500 to-teal-500' 
-                                        : 'bg-gray-200'
-                                  }`}>
-                                    {isCompleted ? (
-                                      <motion.svg 
-                                        initial={{ scale: 0 }}
-                                        animate={{ scale: 1 }}
-                                        className="w-4 h-4 text-white" 
-                                        fill="none" 
-                                        stroke="currentColor" 
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                      </motion.svg>
-                                    ) : isActive ? (
-                                      <>
-                                        <span className="text-sm">{step.icon}</span>
-                                        <div className="absolute inset-0 rounded-full border-2 border-emerald-400 animate-ping opacity-75" />
-                                      </>
-                                    ) : (
-                                      <span className="text-sm opacity-50">{step.icon}</span>
-                                    )}
-                                  </div>
-
-                                  {/* Step text */}
-                                  <div className="flex-1 min-w-0">
-                                    <span className={`text-sm transition-colors duration-300 ${
-                                      isActive 
-                                        ? 'text-emerald-700 font-medium' 
-                                        : isCompleted 
-                                          ? 'text-gray-500 line-through decoration-emerald-400' 
-                                          : 'text-gray-400'
+                            {currentThinking ? (
+                              // Show real thinking from API
+                              <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                  </svg>
+                                  <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">AI Thinking Process</span>
+                                </div>
+                                <div className="text-sm text-gray-700 whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto">
+                                  {currentThinking}
+                                </div>
+                              </div>
+                            ) : (
+                              // Fallback: Show animated steps
+                              <div className="space-y-2">
+                                {thinkingSteps.map((step, index) => (
+                                  <motion.div
+                                    key={index}
+                                    initial={{ opacity: 0, x: -10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    className="flex items-center gap-3 p-2.5 rounded-lg bg-gray-50"
+                                  >
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                      index === thinkingSteps.length - 1 
+                                        ? (researchMode ? 'bg-purple-500' : 'bg-emerald-500')
+                                        : 'bg-gray-300'
                                     }`}>
-                                      {step.text}
+                                      {index === thinkingSteps.length - 1 ? (
+                                        <div className="flex gap-0.5">
+                                          <div className="w-1 h-1 bg-white rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                                          <div className="w-1 h-1 bg-white rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                                          <div className="w-1 h-1 bg-white rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                                        </div>
+                                      ) : (
+                                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                        </svg>
+                                      )}
+                                    </div>
+                                    <span className={`text-sm ${
+                                      index === thinkingSteps.length - 1 
+                                        ? (researchMode ? 'text-purple-700 font-medium' : 'text-emerald-700 font-medium')
+                                        : 'text-gray-500'
+                                    }`}>
+                                      {step}
                                     </span>
-                                  </div>
-
-                                  {/* Progress indicator for active step */}
-                                  {isActive && (
-                                    <div className="flex-shrink-0">
-                                      <div className="flex gap-1">
-                                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                                  </motion.div>
+                                ))}
+                                {thinkingSteps.length === 0 && (
+                                  <div className="flex items-center gap-3 p-2.5">
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                      researchMode ? 'bg-purple-500' : 'bg-emerald-500'
+                                    }`}>
+                                      <div className="flex gap-0.5">
+                                        <div className="w-1 h-1 bg-white rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                                        <div className="w-1 h-1 bg-white rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                                        <div className="w-1 h-1 bg-white rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                                       </div>
                                     </div>
-                                  )}
-
-                                  {/* Checkmark for completed */}
-                                  {isCompleted && (
-                                    <motion.span 
-                                      initial={{ opacity: 0, scale: 0 }}
-                                      animate={{ opacity: 1, scale: 1 }}
-                                      className="text-xs text-emerald-500 font-medium"
-                                    >
-                                      Done
-                                    </motion.span>
-                                  )}
-                                </motion.div>
-                              );
-                            })}
+                                    <span className={`text-sm font-medium ${researchMode ? 'text-purple-700' : 'text-emerald-700'}`}>
+                                      Starting analysis...
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Progress bar */}
-                          <div className="mt-4 pt-3 border-t border-gray-100">
-                            <div className="flex items-center justify-between mb-1.5">
-                              <span className="text-xs text-gray-400">Progress</span>
-                              <span className="text-xs font-medium text-emerald-600">
-                                {Math.min(completedSteps.length + 1, REASONING_STEPS.length)}/{REASONING_STEPS.length}
-                              </span>
+                          {/* Research mode indicator */}
+                          {researchMode && (
+                            <div className="mt-4 pt-3 border-t border-gray-100">
+                              <div className="flex items-center gap-2 text-xs text-purple-600">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Deep research mode - searching multiple sources for comprehensive analysis</span>
+                              </div>
                             </div>
-                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                              <motion.div 
-                                className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
-                                initial={{ width: 0 }}
-                                animate={{ 
-                                  width: `${((completedSteps.length + (currentReasoningStep >= 0 ? 0.5 : 0)) / REASONING_STEPS.length) * 100}%` 
-                                }}
-                                transition={{ duration: 0.3 }}
-                              />
-                            </div>
-                          </div>
+                          )}
                         </div>
                       </motion.div>
                     )}
