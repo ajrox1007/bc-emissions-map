@@ -64,6 +64,57 @@ const SYSTEM_INSTRUCTIONS = `You are an elite AI assistant for the BC Emissions 
 6. **Use web_search** for current market data, competitor info, or regulations
 7. **Reference uploaded documents** when they contain relevant information
 
+## IMPORTANT: Data Visualization Format
+
+When presenting data that would benefit from charts or graphs, DO NOT create ASCII art charts. Instead, output data in this JSON format that our system will render as beautiful charts:
+
+\`\`\`chart
+{
+  "type": "bar" | "pie" | "line" | "area",
+  "title": "Chart Title",
+  "data": [
+    { "name": "Category 1", "value": 100, "color": "#10b981" },
+    { "name": "Category 2", "value": 200, "color": "#3b82f6" }
+  ],
+  "xKey": "name",
+  "yKey": "value",
+  "subtitle": "Optional subtitle"
+}
+\`\`\`
+
+For multi-series data (like comparisons over time):
+\`\`\`chart
+{
+  "type": "bar",
+  "title": "Comparison",
+  "data": [
+    { "name": "Q1", "Series A": 100, "Series B": 150 },
+    { "name": "Q2", "Series A": 120, "Series B": 180 }
+  ],
+  "xKey": "name",
+  "series": ["Series A", "Series B"],
+  "colors": ["#10b981", "#3b82f6"]
+}
+\`\`\`
+
+Use pie charts for distributions, bar charts for comparisons, line/area charts for trends over time.
+
+For key metrics/KPIs, use this format for beautiful metric cards:
+\`\`\`metrics
+{
+  "metrics": [
+    { "label": "Total Value", "value": "$312B", "change": "+15%", "changeType": "positive", "icon": "currency" },
+    { "label": "Projects", "value": "830+", "icon": "building" },
+    { "label": "Avg Size", "value": "$375M", "icon": "chart" }
+  ]
+}
+\`\`\`
+
+Available icons: "currency", "chart", "users", "building", "trending"
+changeType options: "positive", "negative", "neutral"
+
+IMPORTANT: Always use these JSON formats for data visualization instead of ASCII art or text-based charts. The system will render them as beautiful interactive visualizations.
+
 Use the web_search tool proactively when you need current information. Keep search queries brief (2-5 words). Don't ask permission to search - just search when needed.`;
 
 // Research mode instructions - more thorough web research

@@ -1,12 +1,413 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, TableCell, TableRow, Table, WidthType, BorderStyle } from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, TableCell, TableRow, Table, WidthType, BorderStyle, ImageRun } from "docx";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+import {
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  Legend,
+} from "recharts";
+
+// Chart data interface
+interface ChartData {
+  type: "bar" | "pie" | "line" | "area";
+  title: string;
+  subtitle?: string;
+  data: Record<string, any>[];
+  xKey?: string;
+  yKey?: string;
+  series?: string[];
+  colors?: string[];
+}
+
+// Default chart colors
+const CHART_COLORS = [
+  "#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6",
+  "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1"
+];
+
+// Chart renderer component - using Recharts with hex colors for html2canvas compatibility
+const ChartRenderer = React.memo(({ chartData }: { chartData: ChartData }) => {
+  const colors = chartData.colors || CHART_COLORS;
+  
+  // Format large numbers for Y axis
+  const formatYAxis = (value: number) => {
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+    return value.toString();
+  };
+
+  // Custom tooltip with hex colors (no CSS variables)
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div style={{ 
+          backgroundColor: '#ffffff', 
+          border: '1px solid #e5e7eb', 
+          borderRadius: '8px', 
+          padding: '8px 12px',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+        }}>
+          <p style={{ fontWeight: 600, marginBottom: '4px', color: '#111827' }}>{label}</p>
+          {payload.map((entry: any, index: number) => (
+            <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: entry.color }} />
+              <span style={{ color: '#6b7280', fontSize: '12px' }}>{entry.name}:</span>
+              <span style={{ fontWeight: 500, color: '#111827', fontSize: '12px' }}>
+                {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Custom legend with hex colors
+  const renderLegend = (props: any) => {
+    const { payload } = props;
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', paddingTop: '8px', flexWrap: 'wrap' }}>
+        {payload?.map((entry: any, index: number) => (
+          <div key={`legend-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '10px', height: '10px', borderRadius: '2px', backgroundColor: entry.color }} />
+            <span style={{ fontSize: '12px', color: '#374151' }}>{entry.value}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderChart = () => {
+    switch (chartData.type) {
+      case "pie":
+        return (
+          <ResponsiveContainer width="100%" height={320}>
+            <PieChart>
+              <Pie
+                data={chartData.data}
+                cx="50%"
+                cy="45%"
+                innerRadius={50}
+                outerRadius={90}
+                paddingAngle={2}
+                dataKey={chartData.yKey || "value"}
+                nameKey={chartData.xKey || "name"}
+                label={({ name, percent }) => `${name} (${((percent || 0) * 100).toFixed(0)}%)`}
+                labelLine={{ stroke: '#9ca3af', strokeWidth: 1 }}
+                isAnimationActive={false}
+              >
+                {chartData.data.map((entry, index) => (
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={entry.color || colors[index % colors.length]}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                  />
+                ))}
+              </Pie>
+              <Tooltip content={<CustomTooltip />} />
+              <Legend content={renderLegend} />
+            </PieChart>
+          </ResponsiveContainer>
+        );
+
+      case "line":
+        return (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart 
+              data={chartData.data} 
+              margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis 
+                dataKey={chartData.xKey || "name"} 
+                tick={{ fill: '#6b7280', fontSize: 11 }}
+                axisLine={{ stroke: '#e5e7eb' }}
+                tickLine={{ stroke: '#e5e7eb' }}
+                tickMargin={8}
+              />
+              <YAxis 
+                tick={{ fill: '#6b7280', fontSize: 11 }}
+                axisLine={{ stroke: '#e5e7eb' }}
+                tickLine={{ stroke: '#e5e7eb' }}
+                tickFormatter={formatYAxis}
+                width={60}
+                tickMargin={8}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend content={renderLegend} />
+              {chartData.series ? (
+                chartData.series.map((key, index) => (
+                  <Line
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    name={key}
+                    stroke={colors[index % colors.length]}
+                    strokeWidth={2}
+                    dot={{ fill: colors[index % colors.length], r: 4 }}
+                    activeDot={{ r: 6 }}
+                    isAnimationActive={false}
+                  />
+                ))
+              ) : (
+                <Line
+                  type="monotone"
+                  dataKey={chartData.yKey || "value"}
+                  name={chartData.yKey || "Value"}
+                  stroke={colors[0]}
+                  strokeWidth={2}
+                  dot={{ fill: colors[0], r: 4 }}
+                  activeDot={{ r: 6 }}
+                  isAnimationActive={false}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        );
+
+      case "area":
+        return (
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart 
+              data={chartData.data} 
+              margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+            >
+              <defs>
+                {(chartData.series || [chartData.yKey || "value"]).map((key, index) => (
+                  <linearGradient key={`gradient-${key}`} id={`fill-${key}-${index}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={colors[index % colors.length]} stopOpacity={0.6}/>
+                    <stop offset="95%" stopColor={colors[index % colors.length]} stopOpacity={0.1}/>
+                  </linearGradient>
+                ))}
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis 
+                dataKey={chartData.xKey || "name"} 
+                tick={{ fill: '#6b7280', fontSize: 11 }}
+                axisLine={{ stroke: '#e5e7eb' }}
+                tickLine={{ stroke: '#e5e7eb' }}
+                tickMargin={8}
+              />
+              <YAxis 
+                tick={{ fill: '#6b7280', fontSize: 11 }}
+                axisLine={{ stroke: '#e5e7eb' }}
+                tickLine={{ stroke: '#e5e7eb' }}
+                tickFormatter={formatYAxis}
+                width={60}
+                tickMargin={8}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend content={renderLegend} />
+              {chartData.series ? (
+                chartData.series.map((key, index) => (
+                  <Area
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    name={key}
+                    stroke={colors[index % colors.length]}
+                    fill={`url(#fill-${key}-${index})`}
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                  />
+                ))
+              ) : (
+                <Area
+                  type="monotone"
+                  dataKey={chartData.yKey || "value"}
+                  name={chartData.yKey || "Value"}
+                  stroke={colors[0]}
+                  fill={`url(#fill-${chartData.yKey || "value"}-0)`}
+                  strokeWidth={2}
+                  isAnimationActive={false}
+                />
+              )}
+            </AreaChart>
+          </ResponsiveContainer>
+        );
+
+      case "bar":
+      default:
+        return (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart 
+              data={chartData.data} 
+              margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis 
+                dataKey={chartData.xKey || "name"} 
+                tick={{ fill: '#6b7280', fontSize: 11 }}
+                axisLine={{ stroke: '#e5e7eb' }}
+                tickLine={{ stroke: '#e5e7eb' }}
+                tickMargin={8}
+              />
+              <YAxis 
+                tick={{ fill: '#6b7280', fontSize: 11 }}
+                axisLine={{ stroke: '#e5e7eb' }}
+                tickLine={{ stroke: '#e5e7eb' }}
+                tickFormatter={formatYAxis}
+                width={60}
+                tickMargin={8}
+              />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f9fafb' }} />
+              <Legend content={renderLegend} />
+              {chartData.series ? (
+                chartData.series.map((key, index) => (
+                  <Bar
+                    key={key}
+                    dataKey={key}
+                    name={key}
+                    fill={colors[index % colors.length]}
+                    radius={[4, 4, 0, 0]}
+                    isAnimationActive={false}
+                  />
+                ))
+              ) : (
+                <Bar
+                  dataKey={chartData.yKey || "value"}
+                  name={chartData.yKey || "Value"}
+                  radius={[4, 4, 0, 0]}
+                  isAnimationActive={false}
+                >
+                  {chartData.data.map((entry, index) => (
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={entry.color || colors[index % colors.length]}
+                    />
+                  ))}
+                </Bar>
+              )}
+            </BarChart>
+          </ResponsiveContainer>
+        );
+    }
+  };
+
+  return (
+    <div 
+      className="my-5 rounded-xl border bg-white shadow-sm" 
+      data-chart-container="true"
+      style={{ backgroundColor: '#ffffff' }}
+    >
+      <div className="p-4 border-b border-gray-100">
+        <h4 className="text-base font-semibold text-gray-900">{chartData.title}</h4>
+        {chartData.subtitle && (
+          <p className="text-sm text-gray-500 mt-0.5">{chartData.subtitle}</p>
+        )}
+      </div>
+      <div className="p-4 overflow-x-auto">
+        {renderChart()}
+      </div>
+    </div>
+  );
+});
+
+// Metrics data interface
+interface MetricsData {
+  metrics: {
+    label: string;
+    value: string | number;
+    change?: string;
+    changeType?: "positive" | "negative" | "neutral";
+    icon?: string;
+  }[];
+}
+
+// Metrics card component for key statistics - memoized to prevent re-renders
+const MetricsRenderer = React.memo(({ metricsData }: { metricsData: MetricsData }) => {
+  const getChangeColor = (type?: string) => {
+    switch (type) {
+      case "positive": return "text-emerald-600 bg-emerald-50";
+      case "negative": return "text-red-600 bg-red-50";
+      default: return "text-gray-600 bg-gray-50";
+    }
+  };
+
+  const getIcon = (iconName?: string) => {
+    switch (iconName) {
+      case "currency":
+        return (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        );
+      case "chart":
+        return (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        );
+      case "users":
+        return (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+          </svg>
+        );
+      case "building":
+        return (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          </svg>
+        );
+      default:
+        return (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+          </svg>
+        );
+    }
+  };
+
+  return (
+    <div className="my-5 grid grid-cols-2 md:grid-cols-4 gap-4">
+      {metricsData.metrics.map((metric, index) => (
+        <div 
+          key={index}
+          className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              {metric.label}
+            </span>
+            <span className="text-emerald-500">
+              {getIcon(metric.icon)}
+            </span>
+          </div>
+          <div className="text-2xl font-bold text-gray-900 mb-1">
+            {metric.value}
+          </div>
+          {metric.change && (
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${getChangeColor(metric.changeType)}`}>
+              {metric.change}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+});
 
 interface Message {
   role: "user" | "assistant";
@@ -298,12 +699,59 @@ export default function AIChatbot() {
     });
   };
 
-  // Export message to DOCX with proper markdown parsing
-  const exportToDocx = async (content: string, citations: APACitation[] = []) => {
+  // Export message to DOCX with proper markdown parsing and chart images
+  const exportToDocx = async (content: string, citations: APACitation[] = [], messageIndex?: number) => {
     try {
       const children: any[] = [];
       const lines = content.split('\n');
       let i = 0;
+      
+      // Capture chart images from DOM if message index provided (with dimensions)
+      const chartImages: { data: Uint8Array; width: number; height: number }[] = [];
+      if (messageIndex !== undefined) {
+        const messageEl = document.querySelector(`[data-message-index="${messageIndex}"]`);
+        if (messageEl) {
+          const chartContainers = messageEl.querySelectorAll('[data-chart-container="true"]');
+          for (const container of Array.from(chartContainers)) {
+            try {
+              const canvas = await html2canvas(container as HTMLElement, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: false,
+                useCORS: true,
+                // Convert oklch/lab colors to hex before capture
+                onclone: (clonedDoc) => {
+                  const allElements = clonedDoc.querySelectorAll('*');
+                  allElements.forEach((el) => {
+                    const style = window.getComputedStyle(el as Element);
+                    const htmlEl = el as HTMLElement;
+                    // Set explicit colors to avoid oklch/lab parsing issues
+                    if (style.color) htmlEl.style.color = style.color;
+                    if (style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+                      htmlEl.style.backgroundColor = style.backgroundColor;
+                    }
+                    if (style.borderColor) htmlEl.style.borderColor = style.borderColor;
+                    if (style.fill && style.fill !== 'none') htmlEl.style.fill = style.fill;
+                    if (style.stroke && style.stroke !== 'none') htmlEl.style.stroke = style.stroke;
+                  });
+                },
+              });
+              const blob = await new Promise<Blob>((resolve) => {
+                canvas.toBlob((b) => resolve(b!), 'image/png');
+              });
+              const arrayBuffer = await blob.arrayBuffer();
+              chartImages.push({
+                data: new Uint8Array(arrayBuffer),
+                width: canvas.width,
+                height: canvas.height,
+              });
+            } catch (e) {
+              console.error('Failed to capture chart:', e);
+            }
+          }
+        }
+      }
+      let chartImageIndex = 0;
 
       // Helper to parse inline markdown (bold, italic, links)
       const parseInlineMarkdown = (text: string, apaCitations: APACitation[] = []): any[] => {
@@ -402,6 +850,107 @@ export default function AIChatbot() {
         // Skip empty lines
         if (!line.trim()) {
           children.push(new Paragraph({ text: "", spacing: { after: 100 } }));
+          i++;
+          continue;
+        }
+
+        // Handle chart blocks - embed captured image
+        if (line.trim().startsWith('```chart')) {
+          // Skip to end of chart block
+          i++;
+          let chartTitle = "Data Visualization";
+          while (i < lines.length && !lines[i].trim().startsWith('```')) {
+            try {
+              const chartJson = JSON.parse(lines.slice(i - 1, i + 10).join('\n').replace('```chart', '').replace('```', ''));
+              if (chartJson.title) chartTitle = chartJson.title;
+            } catch {}
+            i++;
+          }
+          i++; // Skip closing ```
+          
+          // Add chart title
+          children.push(
+            new Paragraph({
+              children: [new TextRun({ text: chartTitle, bold: true, size: 24 })],
+              spacing: { before: 200, after: 100 },
+            })
+          );
+          
+          // Add captured chart image if available
+          if (chartImages[chartImageIndex]) {
+            const img = chartImages[chartImageIndex];
+            // Calculate scaled dimensions maintaining aspect ratio
+            // Target max width: 500 points, scale proportionally
+            const maxDocWidth = 500;
+            const aspectRatio = img.width / img.height;
+            const scaledWidth = maxDocWidth;
+            const scaledHeight = Math.round(maxDocWidth / aspectRatio);
+            
+            children.push(
+              new Paragraph({
+                children: [
+                  new ImageRun({
+                    data: img.data,
+                    transformation: { width: scaledWidth, height: scaledHeight },
+                    type: 'png',
+                  }),
+                ],
+                spacing: { after: 200 },
+              })
+            );
+            chartImageIndex++;
+          } else {
+            // Fallback placeholder if image capture failed
+            children.push(
+              new Paragraph({
+                children: [new TextRun({ text: "(Chart image not available)", italics: true, size: 18, color: "6B7280" })],
+                spacing: { after: 200 },
+              })
+            );
+          }
+          continue;
+        }
+
+        // Handle metrics blocks - embed captured image
+        if (line.trim().startsWith('```metrics')) {
+          i++;
+          while (i < lines.length && !lines[i].trim().startsWith('```')) {
+            i++;
+          }
+          i++; // Skip closing ```
+          
+          // Metrics cards are also captured as chart images
+          if (chartImages[chartImageIndex]) {
+            const img = chartImages[chartImageIndex];
+            // Calculate scaled dimensions maintaining aspect ratio
+            const maxDocWidth = 500;
+            const aspectRatio = img.width / img.height;
+            const scaledWidth = maxDocWidth;
+            const scaledHeight = Math.round(maxDocWidth / aspectRatio);
+            
+            children.push(
+              new Paragraph({
+                children: [
+                  new ImageRun({
+                    data: img.data,
+                    transformation: { width: scaledWidth, height: scaledHeight },
+                    type: 'png',
+                  }),
+                ],
+                spacing: { before: 200, after: 200 },
+              })
+            );
+            chartImageIndex++;
+          }
+          continue;
+        }
+
+        // Skip regular code blocks
+        if (line.trim().startsWith('```')) {
+          i++;
+          while (i < lines.length && !lines[i].trim().startsWith('```')) {
+            i++;
+          }
           i++;
           continue;
         }
@@ -547,8 +1096,8 @@ export default function AIChatbot() {
     }
   };
 
-  // Export message to PDF
-  const exportToPdf = async (content: string, citations: APACitation[] = []) => {
+  // Export message to PDF with proper table rendering
+  const exportToPdf = async (content: string, citations: APACitation[] = [], messageIndex?: number) => {
     try {
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -557,85 +1106,355 @@ export default function AIChatbot() {
       const maxWidth = pageWidth - margin * 2;
       let y = margin;
 
-      // Helper to add text with page breaks
-      const addText = (text: string, fontSize: number, isBold: boolean = false, isItalic: boolean = false) => {
-        pdf.setFontSize(fontSize);
-        pdf.setFont("helvetica", isBold ? "bold" : isItalic ? "italic" : "normal");
-        
-        // Remove markdown formatting for PDF
-        const cleanText = text
-          .replace(/\*\*(.+?)\*\*/g, '$1')
-          .replace(/\*(.+?)\*/g, '$1')
-          .replace(/\[(\d+)\]/g, '[$1]')
-          .replace(/\[(.+?)\]\(.+?\)/g, '$1');
-        
-        const lines = pdf.splitTextToSize(cleanText, maxWidth);
-        for (const line of lines) {
-          if (y > pageHeight - margin) {
-            pdf.addPage();
-            y = margin;
+      // Colors
+      const primaryColor = { r: 16, g: 185, b: 129 }; // Emerald
+      const textColor = { r: 55, g: 65, b: 81 };
+      const lightGray = { r: 243, g: 244, b: 246 };
+      
+      // Capture chart images from DOM (with dimensions for proper scaling)
+      const chartImages: { dataUrl: string; width: number; height: number }[] = [];
+      if (messageIndex !== undefined) {
+        const messageEl = document.querySelector(`[data-message-index="${messageIndex}"]`);
+        if (messageEl) {
+          const chartContainers = messageEl.querySelectorAll('[data-chart-container="true"]');
+          for (const container of Array.from(chartContainers)) {
+            try {
+              const canvas = await html2canvas(container as HTMLElement, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: false,
+                useCORS: true,
+                // Convert oklch/lab colors to hex before capture
+                onclone: (clonedDoc) => {
+                  const allElements = clonedDoc.querySelectorAll('*');
+                  allElements.forEach((el) => {
+                    const style = window.getComputedStyle(el as Element);
+                    const htmlEl = el as HTMLElement;
+                    // Set explicit colors to avoid oklch/lab parsing issues
+                    if (style.color) htmlEl.style.color = style.color;
+                    if (style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+                      htmlEl.style.backgroundColor = style.backgroundColor;
+                    }
+                    if (style.borderColor) htmlEl.style.borderColor = style.borderColor;
+                    if (style.fill && style.fill !== 'none') htmlEl.style.fill = style.fill;
+                    if (style.stroke && style.stroke !== 'none') htmlEl.style.stroke = style.stroke;
+                  });
+                },
+              });
+              chartImages.push({
+                dataUrl: canvas.toDataURL('image/png'),
+                width: canvas.width,
+                height: canvas.height,
+              });
+            } catch (e) {
+              console.error('Failed to capture chart:', e);
+            }
           }
-          pdf.text(line, margin, y);
-          y += fontSize * 0.4;
         }
+      }
+      let chartImageIndex = 0;
+
+      // Helper to check and add page break
+      const checkPageBreak = (requiredHeight: number) => {
+        if (y + requiredHeight > pageHeight - margin) {
+          pdf.addPage();
+          y = margin;
+          return true;
+        }
+        return false;
       };
 
-      // Title
-      pdf.setFontSize(20);
+      // Helper to clean markdown text
+      const cleanMarkdown = (text: string) => {
+        return text
+          .replace(/\*\*(.+?)\*\*/g, '$1')
+          .replace(/\*(.+?)\*/g, '$1')
+          .replace(/\[(\d+)\]/g, '')
+          .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+          .replace(/`(.+?)`/g, '$1');
+      };
+
+      // Title header with branding
+      pdf.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+      pdf.rect(0, 0, pageWidth, 35, 'F');
+      
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(22);
       pdf.setFont("helvetica", "bold");
-      pdf.text("Research Report", pageWidth / 2, y, { align: 'center' });
-      y += 10;
+      pdf.text("Research Report", margin, 20);
       
       pdf.setFontSize(10);
-      pdf.setFont("helvetica", "italic");
-      pdf.text(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), pageWidth / 2, y, { align: 'center' });
-      y += 15;
+      pdf.setFont("helvetica", "normal");
+      pdf.text("Elevate Edge | AI-Powered Analysis", margin, 28);
+      
+      pdf.setFontSize(10);
+      pdf.text(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), pageWidth - margin, 28, { align: 'right' });
+      
+      y = 45;
+      pdf.setTextColor(textColor.r, textColor.g, textColor.b);
 
-      // Parse content
+      // Parse content into sections
       const lines = content.split('\n');
-      for (const line of lines) {
+      let i = 0;
+
+      while (i < lines.length) {
+        const line = lines[i];
+
+        // Skip empty lines
         if (!line.trim()) {
           y += 3;
+          i++;
           continue;
         }
 
-        if (line.startsWith('#### ')) {
-          y += 3;
-          addText(line.replace('#### ', ''), 11, true);
-          y += 2;
-        } else if (line.startsWith('### ')) {
-          y += 4;
-          addText(line.replace('### ', ''), 12, true);
-          y += 2;
-        } else if (line.startsWith('## ')) {
-          y += 5;
-          addText(line.replace('## ', ''), 14, true);
-          y += 3;
-        } else if (line.startsWith('# ')) {
-          y += 6;
-          addText(line.replace('# ', ''), 16, true);
-          y += 4;
-        } else if (line.match(/^[\s]*[-*•]\s/)) {
-          addText('  • ' + line.replace(/^[\s]*[-*•]\s/, ''), 10);
-        } else if (line.trim().startsWith('|')) {
-          // Skip table formatting characters in PDF
-          if (!line.match(/^\|[-:\s|]+\|$/)) {
-            addText(line.replace(/\|/g, '  '), 9);
+        // Handle chart JSON blocks - add captured image
+        if (line.trim().startsWith('```chart') || line.trim().startsWith('```metrics')) {
+          // Get chart title
+          let chartTitle = "";
+          const startI = i;
+          i++;
+          while (i < lines.length && !lines[i].trim().startsWith('```')) {
+            try {
+              const jsonStr = lines.slice(startI, i + 5).join('\n').replace(/```chart|```metrics|```/g, '');
+              const chartJson = JSON.parse(jsonStr);
+              if (chartJson.title) chartTitle = chartJson.title;
+            } catch {}
+            i++;
           }
-        } else {
-          addText(line, 10);
+          i++; // Skip closing ```
+          
+          // Add chart image if available
+          if (chartImages[chartImageIndex]) {
+            const img = chartImages[chartImageIndex];
+            
+            // Add title
+            if (chartTitle) {
+              checkPageBreak(10);
+              pdf.setFontSize(12);
+              pdf.setFont("helvetica", "bold");
+              pdf.text(chartTitle, margin, y);
+              y += 6;
+            }
+            
+            // Calculate scaled dimensions maintaining aspect ratio
+            const aspectRatio = img.width / img.height;
+            let imgWidth = maxWidth;
+            let imgHeight = maxWidth / aspectRatio;
+            
+            // If too tall, scale by height instead
+            const maxImgHeight = 80; // mm - max height for a chart
+            if (imgHeight > maxImgHeight) {
+              imgHeight = maxImgHeight;
+              imgWidth = maxImgHeight * aspectRatio;
+            }
+            
+            checkPageBreak(imgHeight + 10);
+            // Center the image if it's narrower than maxWidth
+            const imgX = margin + (maxWidth - imgWidth) / 2;
+            pdf.addImage(img.dataUrl, 'PNG', imgX, y, imgWidth, imgHeight);
+            y += imgHeight + 8;
+            chartImageIndex++;
+          }
+          continue;
+        }
+
+        // Headings
+        if (line.startsWith('# ')) {
+          checkPageBreak(15);
+          pdf.setFontSize(18);
+          pdf.setFont("helvetica", "bold");
+          pdf.setTextColor(textColor.r, textColor.g, textColor.b);
+          pdf.text(cleanMarkdown(line.replace('# ', '')), margin, y);
+          y += 10;
+          i++;
+          continue;
+        }
+        if (line.startsWith('## ')) {
+          checkPageBreak(12);
+          y += 3;
+          pdf.setFontSize(14);
+          pdf.setFont("helvetica", "bold");
+          pdf.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
+          pdf.text(cleanMarkdown(line.replace('## ', '')), margin, y);
+          y += 8;
+          pdf.setTextColor(textColor.r, textColor.g, textColor.b);
+          i++;
+          continue;
+        }
+        if (line.startsWith('### ')) {
+          checkPageBreak(10);
+          y += 2;
+          pdf.setFontSize(12);
+          pdf.setFont("helvetica", "bold");
+          pdf.text(cleanMarkdown(line.replace('### ', '')), margin, y);
+          y += 7;
+          i++;
+          continue;
+        }
+        if (line.startsWith('#### ')) {
+          checkPageBreak(8);
+          pdf.setFontSize(11);
+          pdf.setFont("helvetica", "bold");
+          pdf.text(cleanMarkdown(line.replace('#### ', '')), margin, y);
+          y += 6;
+          i++;
+          continue;
+        }
+
+        // Tables
+        if (line.trim().startsWith('|') && line.includes('|')) {
+          const tableData: string[][] = [];
+          let tableStart = i;
+          
+          // Collect all table rows
+          while (i < lines.length && lines[i].trim().startsWith('|')) {
+            const rowLine = lines[i].trim();
+            // Skip separator rows
+            if (!rowLine.match(/^\|[-:\s|]+\|$/)) {
+              const cells = rowLine.split('|').filter(c => c !== '').map(c => cleanMarkdown(c.trim()));
+              if (cells.length > 0) {
+                tableData.push(cells);
+              }
+            }
+            i++;
+          }
+
+          if (tableData.length > 0) {
+            const colCount = Math.max(...tableData.map(row => row.length));
+            const colWidth = maxWidth / colCount;
+            const rowHeight = 8;
+            const cellPadding = 2;
+            
+            checkPageBreak(tableData.length * rowHeight + 10);
+
+            // Draw table
+            tableData.forEach((row, rowIndex) => {
+              const rowY = y + rowIndex * rowHeight;
+              
+              // Check for page break within table
+              if (rowY > pageHeight - margin - rowHeight) {
+                pdf.addPage();
+                y = margin;
+              }
+              
+              const actualY = y + rowIndex * rowHeight;
+              
+              // Header row background
+              if (rowIndex === 0) {
+                pdf.setFillColor(lightGray.r, lightGray.g, lightGray.b);
+                pdf.rect(margin, actualY - 5, maxWidth, rowHeight, 'F');
+              }
+              
+              // Draw cells
+              row.forEach((cell, colIndex) => {
+                const cellX = margin + colIndex * colWidth + cellPadding;
+                pdf.setFontSize(9);
+                pdf.setFont("helvetica", rowIndex === 0 ? "bold" : "normal");
+                
+                // Truncate text if too long
+                const maxCellWidth = colWidth - cellPadding * 2;
+                let displayText = cell;
+                while (pdf.getTextWidth(displayText) > maxCellWidth && displayText.length > 3) {
+                  displayText = displayText.slice(0, -4) + '...';
+                }
+                
+                pdf.text(displayText, cellX, actualY);
+              });
+              
+              // Draw row border
+              pdf.setDrawColor(229, 231, 235);
+              pdf.line(margin, actualY + 2, margin + maxWidth, actualY + 2);
+            });
+
+            y += tableData.length * rowHeight + 5;
+          }
+          continue;
+        }
+
+        // Bullet points
+        if (line.match(/^[\s]*[-*•]\s/)) {
+          checkPageBreak(6);
+          pdf.setFontSize(10);
+          pdf.setFont("helvetica", "normal");
+          const bulletText = cleanMarkdown(line.replace(/^[\s]*[-*•]\s/, ''));
+          const wrappedText = pdf.splitTextToSize(bulletText, maxWidth - 10);
+          
+          pdf.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+          pdf.circle(margin + 2, y - 1, 1, 'F');
+          
+          wrappedText.forEach((textLine: string, idx: number) => {
+            checkPageBreak(5);
+            pdf.text(textLine, margin + 8, y + idx * 5);
+          });
+          y += wrappedText.length * 5 + 2;
+          i++;
+          continue;
+        }
+
+        // Numbered lists
+        if (line.match(/^[\s]*\d+\.\s/)) {
+          checkPageBreak(6);
+          pdf.setFontSize(10);
+          pdf.setFont("helvetica", "normal");
+          const wrappedText = pdf.splitTextToSize(cleanMarkdown(line), maxWidth - 5);
+          wrappedText.forEach((textLine: string, idx: number) => {
+            checkPageBreak(5);
+            pdf.text(textLine, margin + 5, y + idx * 5);
+          });
+          y += wrappedText.length * 5 + 2;
+          i++;
+          continue;
+        }
+
+        // Regular paragraph
+        pdf.setFontSize(10);
+        pdf.setFont("helvetica", "normal");
+        const wrappedText = pdf.splitTextToSize(cleanMarkdown(line), maxWidth);
+        wrappedText.forEach((textLine: string, idx: number) => {
+          checkPageBreak(5);
+          pdf.text(textLine, margin, y + idx * 5);
+        });
+        y += wrappedText.length * 5 + 2;
+        i++;
+      }
+
+      // References section
+      if (citations.length > 0) {
+        checkPageBreak(20);
+        y += 10;
+        
+        // References header
+        pdf.setFillColor(lightGray.r, lightGray.g, lightGray.b);
+        pdf.rect(margin, y - 5, maxWidth, 10, 'F');
+        pdf.setFontSize(12);
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(textColor.r, textColor.g, textColor.b);
+        pdf.text("References", margin + 3, y);
+        y += 12;
+
+        pdf.setFontSize(9);
+        pdf.setFont("helvetica", "normal");
+        
+        for (const citation of citations) {
+          checkPageBreak(10);
+          const refText = `${citation.author || citation.siteName}. (${citation.date}). ${citation.title}. ${citation.url}`;
+          const wrappedRef = pdf.splitTextToSize(refText, maxWidth - 10);
+          wrappedRef.forEach((textLine: string, idx: number) => {
+            checkPageBreak(4);
+            pdf.text(textLine, margin + (idx === 0 ? 0 : 5), y + idx * 4);
+          });
+          y += wrappedRef.length * 4 + 3;
         }
       }
 
-      // References
-      if (citations.length > 0) {
-        y += 10;
-        addText('References', 14, true);
-        y += 5;
-        for (const citation of citations) {
-          addText(`${citation.author || citation.siteName}. (${citation.date}). ${citation.title}. ${citation.url}`, 9);
-          y += 2;
-        }
+      // Footer
+      const totalPages = pdf.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        pdf.setPage(p);
+        pdf.setFontSize(8);
+        pdf.setTextColor(150, 150, 150);
+        pdf.text(`Page ${p} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+        pdf.text('Generated by Elevate Edge', pageWidth - margin, pageHeight - 10, { align: 'right' });
       }
 
       pdf.save(`Research_Report_${new Date().toISOString().split('T')[0]}.pdf`);
@@ -799,14 +1618,16 @@ export default function AIChatbot() {
       return content;
     }
 
-    // Replace [1], [2], etc. with markdown hyperlinks
+    // Replace [1], [2], etc. with hyperlinked (Author, Year) format
     let processedContent = content;
     citations.forEach((citation) => {
       const pattern = new RegExp(`\\[${citation.number}\\]`, 'g');
-      const author = citation.author || citation.siteName || "Source";
+      // Extract author/site name - clean it up for display
+      const rawAuthor = citation.author || citation.siteName || "Source";
+      const author = rawAuthor.split('.')[0].split(',')[0].trim(); // Get first part of author
       const year = citation.date || new Date().getFullYear().toString();
-      // Create APA-style in-text citation as a hyperlink
-      const apaLink = `[${author}, ${year}](${citation.url})`;
+      // Create APA-style in-text citation as hyperlink: (Author, Year)
+      const apaLink = `[(${author}, ${year})](${citation.url})`;
       processedContent = processedContent.replace(pattern, apaLink);
     });
 
@@ -821,89 +1642,188 @@ export default function AIChatbot() {
     return `${author}. (${date}). *${title}*. Retrieved from ${citation.url}`;
   };
 
-  const MarkdownComponents = {
+  // Enhanced Markdown Components with modern UI - memoized to prevent re-renders
+  const MarkdownComponents = useMemo(() => ({
     h1: ({ children }: any) => (
-      <h1 className="text-xl font-bold text-gray-900 mt-6 mb-3 first:mt-0">{children}</h1>
+      <div className="mt-6 mb-4 first:mt-0">
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+          <span className="w-1.5 h-8 bg-gradient-to-b from-emerald-500 to-teal-600 rounded-full"></span>
+          {children}
+        </h1>
+        <div className="h-px bg-gradient-to-r from-emerald-500/50 to-transparent mt-2"></div>
+      </div>
     ),
     h2: ({ children }: any) => (
-      <h2 className="text-lg font-bold text-gray-900 mt-5 mb-2 first:mt-0">{children}</h2>
+      <div className="mt-6 mb-3 first:mt-0">
+        <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+          <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+          {children}
+        </h2>
+      </div>
     ),
     h3: ({ children }: any) => (
-      <h3 className="text-base font-semibold text-gray-900 mt-4 mb-2 first:mt-0">{children}</h3>
+      <h3 className="text-base font-semibold text-gray-800 mt-5 mb-2 first:mt-0 flex items-center gap-2">
+        <span className="w-1.5 h-1.5 bg-teal-500 rounded-full"></span>
+        {children}
+      </h3>
     ),
     h4: ({ children }: any) => (
-      <h4 className="text-sm font-semibold text-gray-900 mt-3 mb-1 first:mt-0">{children}</h4>
+      <h4 className="text-sm font-semibold text-gray-700 mt-4 mb-2 first:mt-0">{children}</h4>
     ),
-    p: ({ children }: any) => (
-      <p className="text-sm text-gray-700 mb-3 leading-relaxed last:mb-0">{children}</p>
-    ),
+    p: ({ children }: any) => {
+      // Check if paragraph contains a metric pattern like "**4.6%**" or "$4,000M"
+      const text = String(children);
+      const hasMetric = /\*\*[\d.,]+%?\*\*|\$[\d,]+[MBK]?/.test(text);
+      
+      return (
+        <p className={`text-sm text-gray-600 mb-3 leading-relaxed last:mb-0 ${hasMetric ? 'text-base' : ''}`}>
+          {children}
+        </p>
+      );
+    },
     ul: ({ children }: any) => (
-      <ul className="list-disc list-inside space-y-1 mb-3 text-sm text-gray-700">{children}</ul>
+      <ul className="space-y-2 mb-4 text-sm text-gray-600">{children}</ul>
     ),
     ol: ({ children }: any) => (
-      <ol className="list-decimal list-inside space-y-1 mb-3 text-sm text-gray-700">{children}</ol>
+      <ol className="space-y-3 mb-4 text-sm text-gray-600 counter-reset-item">{children}</ol>
     ),
     li: ({ children }: any) => (
-      <li className="leading-relaxed ml-2">{children}</li>
+      <li className="flex items-start gap-3 leading-relaxed">
+        <span className="mt-2 w-1.5 h-1.5 bg-emerald-500 rounded-full flex-shrink-0"></span>
+        <span className="flex-1">{children}</span>
+      </li>
     ),
     table: ({ children }: any) => (
-      <div className="overflow-x-auto my-4 rounded-lg border border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200">{children}</table>
+      <div className="my-5 rounded-xl overflow-hidden border border-gray-200 shadow-sm bg-white">
+        <div className="overflow-x-auto">
+          <table className="min-w-full">{children}</table>
+        </div>
       </div>
     ),
     thead: ({ children }: any) => (
-      <thead className="bg-gray-50">{children}</thead>
+      <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">{children}</thead>
     ),
     tbody: ({ children }: any) => (
-      <tbody className="bg-white divide-y divide-gray-200">{children}</tbody>
+      <tbody className="divide-y divide-gray-100">{children}</tbody>
     ),
     tr: ({ children }: any) => (
-      <tr className="hover:bg-gray-50 transition-colors">{children}</tr>
+      <tr className="hover:bg-emerald-50/50 transition-colors">{children}</tr>
     ),
     th: ({ children }: any) => (
-      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">
+      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
         {children}
       </th>
     ),
-    td: ({ children }: any) => (
-      <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{children}</td>
-    ),
-    code: ({ inline, children }: any) =>
-      inline ? (
-        <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-xs font-mono">
+    td: ({ children }: any) => {
+      // Style numeric cells differently
+      const text = String(children);
+      const isNumeric = /^[\d$%.,]+[MBK]?$/.test(text.trim());
+      const isPositive = text.includes('+') || (text.includes('%') && !text.includes('-'));
+      const isNegative = text.includes('-');
+      
+      return (
+        <td className={`px-4 py-3 text-sm ${
+          isNumeric 
+            ? `font-medium ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-500' : 'text-gray-900'}` 
+            : 'text-gray-600'
+        }`}>
+          {children}
+        </td>
+      );
+    },
+    code: ({ inline, className, children }: any) => {
+      const codeContent = String(children).replace(/\n$/, '');
+      
+      // Check if this is a chart block
+      if (!inline && className === 'language-chart') {
+        try {
+          const chartData = JSON.parse(codeContent) as ChartData;
+          return <ChartRenderer chartData={chartData} />;
+        } catch (e) {
+          console.error('Failed to parse chart JSON:', e);
+        }
+      }
+      
+      // Check if this is a metrics block
+      if (!inline && className === 'language-metrics') {
+        try {
+          const metricsData = JSON.parse(codeContent) as MetricsData;
+          return <MetricsRenderer metricsData={metricsData} />;
+        } catch (e) {
+          console.error('Failed to parse metrics JSON:', e);
+        }
+      }
+      
+      return inline ? (
+        <code className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded text-xs font-mono border border-emerald-100">
           {children}
         </code>
       ) : (
-        <code className="block bg-gray-100 text-gray-800 p-3 rounded-lg text-xs font-mono overflow-x-auto my-2">
-          {children}
-        </code>
-      ),
-    pre: ({ children }: any) => (
-      <pre className="bg-gray-100 rounded-lg overflow-x-auto my-2">{children}</pre>
-    ),
-    strong: ({ children }: any) => (
-      <strong className="font-semibold text-gray-900">{children}</strong>
-    ),
+        <div className="my-3 rounded-lg overflow-hidden border border-gray-200">
+          <div className="bg-gray-800 px-4 py-2 flex items-center gap-2">
+            <div className="flex gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-red-500"></div>
+              <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+            </div>
+            <span className="text-xs text-gray-400 ml-2">Code</span>
+          </div>
+          <code className="block bg-gray-900 text-gray-100 p-4 text-xs font-mono overflow-x-auto">
+            {children}
+          </code>
+        </div>
+      );
+    },
+    pre: ({ children }: any) => <>{children}</>,
+    strong: ({ children }: any) => {
+      // Check if this is a metric/number to highlight
+      const text = String(children);
+      const isMetric = /^[\d.,]+%?$/.test(text) || /^\$[\d,]+[MBK]?$/.test(text);
+      
+      if (isMetric) {
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200">
+            <span className="text-lg font-bold text-emerald-700">{children}</span>
+          </span>
+        );
+      }
+      
+      return <strong className="font-semibold text-gray-900">{children}</strong>;
+    },
     em: ({ children }: any) => (
-      <em className="italic text-gray-700">{children}</em>
+      <em className="text-gray-600 not-italic bg-gray-50 px-1 rounded">{children}</em>
     ),
     blockquote: ({ children }: any) => (
-      <blockquote className="border-l-4 border-gray-300 pl-4 py-2 my-3 text-gray-700 italic bg-gray-50 rounded-r">
-        {children}
-      </blockquote>
+      <div className="my-4 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 border-l-4 border-emerald-500 p-4">
+        <div className="flex gap-3">
+          <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M13 14.725c0-5.141 3.892-10.519 10-11.725l.984 2.126c-2.215.835-4.163 3.742-4.38 5.746 2.491.392 4.396 2.547 4.396 5.149 0 3.182-2.584 4.979-5.199 4.979-3.015 0-5.801-2.305-5.801-6.275zm-13 0c0-5.141 3.892-10.519 10-11.725l.984 2.126c-2.215.835-4.163 3.742-4.38 5.746 2.491.392 4.396 2.547 4.396 5.149 0 3.182-2.584 4.979-5.199 4.979-3.015 0-5.801-2.305-5.801-6.275z"/>
+          </svg>
+          <div className="text-gray-700 italic">{children}</div>
+        </div>
+      </div>
     ),
     a: ({ href, children }: any) => (
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-blue-600 hover:text-blue-800 underline"
+        className="text-emerald-600 hover:text-emerald-700 underline decoration-emerald-300 hover:decoration-emerald-500 transition-colors inline-flex items-center gap-1"
       >
         {children}
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+        </svg>
       </a>
     ),
-    hr: () => <hr className="my-4 border-gray-200" />,
-  };
+    hr: () => (
+      <div className="my-6 flex items-center gap-4">
+        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
+        <div className="w-2 h-2 rounded-full bg-gray-300"></div>
+        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
+      </div>
+    ),
+  }), []);
 
   return (
     <>
@@ -1090,8 +2010,8 @@ export default function AIChatbot() {
             </header>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-y-auto bg-gray-50">
-              <div className="max-w-6xl mx-auto px-8 py-8">
+            <main className="flex-1 overflow-y-auto bg-gradient-to-b from-gray-50 to-white">
+              <div className="max-w-5xl mx-auto px-6 py-6">
                 {messages.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
@@ -1154,10 +2074,11 @@ export default function AIChatbot() {
                         className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`${msg.role === "user" ? "max-w-[70%]" : "max-w-[95%]"} ${
+                          data-message-index={i}
+                          className={`${msg.role === "user" ? "max-w-[70%]" : "max-w-full w-full"} ${
                             msg.role === "user"
-                              ? "bg-black text-white rounded-2xl rounded-br-md px-4 py-3"
-                              : "bg-white rounded-2xl rounded-bl-md px-5 py-5 border border-gray-200 shadow-sm"
+                              ? "bg-gradient-to-br from-gray-900 to-gray-800 text-white rounded-2xl rounded-br-md px-4 py-3 shadow-md"
+                              : "bg-white rounded-2xl rounded-bl-md px-6 py-6 border border-gray-100 shadow-lg"
                           }`}
                         >
                           {msg.role === "user" ? (
@@ -1256,7 +2177,7 @@ export default function AIChatbot() {
                                 <button
                                   onClick={() => {
                                     setExportingIndex(i);
-                                    exportToDocx(msg.content, msg.citations || []).finally(() => setExportingIndex(null));
+                                    exportToDocx(msg.content, msg.citations || [], i).finally(() => setExportingIndex(null));
                                   }}
                                   disabled={exportingIndex === i}
                                   className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-50 text-blue-600 rounded hover:bg-blue-100 disabled:opacity-50 transition-colors"
@@ -1269,7 +2190,7 @@ export default function AIChatbot() {
                                 <button
                                   onClick={() => {
                                     setExportingIndex(i);
-                                    exportToPdf(msg.content, msg.citations || []).finally(() => setExportingIndex(null));
+                                    exportToPdf(msg.content, msg.citations || [], i).finally(() => setExportingIndex(null));
                                   }}
                                   disabled={exportingIndex === i}
                                   className="flex items-center gap-1 px-2 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 disabled:opacity-50 transition-colors"
