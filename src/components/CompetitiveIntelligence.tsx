@@ -184,16 +184,281 @@ function safeStringify(value: any): string {
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) return value.map(safeStringify).join(", ");
   if (typeof value === "object") {
-    // Convert object to readable format
+    // Convert object to readable markdown format
     return Object.entries(value)
-      .map(([k, v]) => `**${k}:** ${safeStringify(v)}`)
+      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+      .map(([k, v]) => `**${formatLabel(k)}:** ${safeStringify(v)}`)
       .join("\n\n");
   }
   return String(value);
 }
 
+// Format camelCase or snake_case to readable labels
+function formatLabel(key: string): string {
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/^\w/, c => c.toUpperCase())
+    .trim();
+}
+
+// Check if content is JSON
+function isJsonContent(content: string): boolean {
+  if (!content || typeof content !== 'string') return false;
+  const trimmed = content.trim();
+  return (trimmed.startsWith('{') && trimmed.endsWith('}')) || 
+         (trimmed.startsWith('[') && trimmed.endsWith(']'));
+}
+
+// Parse JSON safely
+function parseJsonSafe(content: string): any {
+  try {
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+
+// ============= JSON DATA RENDERER COMPONENT =============
+function JsonDataRenderer({ data, title }: { data: any; title?: string }) {
+  if (!data) return null;
+
+  // Handle arrays
+  if (Array.isArray(data)) {
+    if (data.length === 0) return <p className="text-slate-500 italic">No data available</p>;
+    return (
+      <div className="space-y-4">
+        {data.map((item, idx) => (
+          <div key={idx} className="bg-slate-50 rounded-lg p-4">
+            <JsonDataRenderer data={item} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Handle objects
+  if (typeof data === 'object' && data !== null) {
+    // Check for common financial/data structures
+    const entries = Object.entries(data).filter(([, v]) => v !== null && v !== undefined && v !== "");
+    
+    if (entries.length === 0) return <p className="text-slate-500 italic">No data available</p>;
+
+    // Special handling for known data types
+    if (data.company || data.financials) {
+      return <FinancialDataCard data={data} />;
+    }
+
+    if (data.type && data.description) {
+      return <ActivityCard data={data} />;
+    }
+
+    // Generic object rendering
+    return (
+      <div className="space-y-3">
+        {entries.map(([key, value]) => (
+          <DataRow key={key} label={key} value={value} />
+        ))}
+      </div>
+    );
+  }
+
+  // Handle primitives
+  return <span className="text-slate-700">{String(data)}</span>;
+}
+
+// ============= FINANCIAL DATA CARD =============
+function FinancialDataCard({ data }: { data: any }) {
+  const company = data.company || data.name || "Company";
+  const financials = data.financials || {};
+  const activities = data.recentActivity || data.activities || [];
+  const metrics = data.keyMetrics || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Company Header */}
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
+          {company.substring(0, 2).toUpperCase()}
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">{company}</h3>
+          {financials.fiscalYear && (
+            <p className="text-sm text-slate-500">Fiscal Year {financials.fiscalYear}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Financial Metrics */}
+      {Object.keys(financials).length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {financials.revenueUSD && (
+            <MetricCard 
+              label="Revenue" 
+              value={`$${(financials.revenueUSD / 1000000).toFixed(1)}M`} 
+              sublabel={financials.revenueBillions}
+            />
+          )}
+          {financials.revenueGrowthPercent && (
+            <MetricCard 
+              label="Revenue Growth" 
+              value={`${financials.revenueGrowthPercent}%`}
+              positive={financials.revenueGrowthPercent > 0}
+            />
+          )}
+          {financials.marketSharePercent && (
+            <MetricCard label="Market Share" value={`${financials.marketSharePercent}%`} />
+          )}
+          {financials.grossMarginPercent && (
+            <MetricCard label="Gross Margin" value={`${financials.grossMarginPercent}%`} />
+          )}
+          {financials.operatingMarginPercent && (
+            <MetricCard label="Operating Margin" value={`${financials.operatingMarginPercent}%`} />
+          )}
+        </div>
+      )}
+
+      {/* Key Metrics */}
+      {metrics.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold text-slate-700 mb-2">Key Metrics</h4>
+          <div className="grid grid-cols-2 gap-2">
+            {metrics.map((metric: any, idx: number) => (
+              <div key={idx} className="bg-slate-50 rounded-lg p-3">
+                <p className="text-xs text-slate-500">{metric.name || metric.label}</p>
+                <p className="text-sm font-medium text-slate-900">{metric.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Activity */}
+      {activities.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold text-slate-700 mb-3">Recent Activity</h4>
+          <div className="space-y-3">
+            {activities.map((activity: any, idx: number) => (
+              <ActivityCard key={idx} data={activity} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============= METRIC CARD =============
+function MetricCard({ label, value, sublabel, positive }: { label: string; value: string; sublabel?: string; positive?: boolean }) {
+  return (
+    <div className="bg-slate-50 rounded-lg p-3">
+      <p className="text-xs text-slate-500 mb-1">{label}</p>
+      <p className={`text-lg font-semibold ${positive === true ? 'text-emerald-600' : positive === false ? 'text-red-600' : 'text-slate-900'}`}>
+        {value}
+      </p>
+      {sublabel && <p className="text-xs text-slate-400">{sublabel}</p>}
+    </div>
+  );
+}
+
+// ============= ACTIVITY CARD =============
+function ActivityCard({ data }: { data: any }) {
+  const type = data.type || data.category || "Update";
+  const description = data.description || data.details || data.summary || "";
+  const date = data.date || data.dateDiscovered;
+  const source = data.source;
+
+  const typeColors: Record<string, string> = {
+    partnership: "bg-purple-100 text-purple-700",
+    acquisition: "bg-blue-100 text-blue-700",
+    product: "bg-emerald-100 text-emerald-700",
+    expansion: "bg-amber-100 text-amber-700",
+    financial: "bg-indigo-100 text-indigo-700",
+    default: "bg-slate-100 text-slate-700",
+  };
+
+  const colorClass = typeColors[type.toLowerCase()] || typeColors.default;
+
+  return (
+    <div className="border border-slate-200 rounded-lg p-4 bg-white">
+      <div className="flex items-start gap-3">
+        <span className={`text-xs font-medium px-2 py-1 rounded-full ${colorClass} capitalize`}>
+          {type}
+        </span>
+        {date && (
+          <span className="text-xs text-slate-400 ml-auto">{date}</span>
+        )}
+      </div>
+      <p className="text-sm text-slate-700 mt-2 leading-relaxed">{description}</p>
+      {source && (
+        <p className="text-xs text-slate-400 mt-2">Source: {source}</p>
+      )}
+    </div>
+  );
+}
+
+// ============= DATA ROW =============
+function DataRow({ label, value }: { label: string; value: any }) {
+  const formattedLabel = formatLabel(label);
+  
+  // Skip empty values
+  if (value === null || value === undefined || value === "" || 
+      (Array.isArray(value) && value.length === 0) ||
+      (typeof value === 'object' && Object.keys(value).length === 0)) {
+    return null;
+  }
+
+  // Handle nested objects
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return (
+      <div className="border-l-2 border-slate-200 pl-4">
+        <h4 className="text-sm font-semibold text-slate-700 mb-2">{formattedLabel}</h4>
+        <JsonDataRenderer data={value} />
+      </div>
+    );
+  }
+
+  // Handle arrays
+  if (Array.isArray(value)) {
+    return (
+      <div>
+        <h4 className="text-sm font-semibold text-slate-700 mb-2">{formattedLabel}</h4>
+        <div className="space-y-2">
+          {value.map((item, idx) => (
+            <div key={idx} className="bg-slate-50 rounded-lg p-3">
+              {typeof item === 'object' ? <JsonDataRenderer data={item} /> : <span className="text-sm text-slate-700">{String(item)}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Handle primitives
+  return (
+    <div className="flex items-start gap-2">
+      <span className="text-sm font-medium text-slate-600 min-w-[120px]">{formattedLabel}:</span>
+      <span className="text-sm text-slate-800">{String(value)}</span>
+    </div>
+  );
+}
+
+// Strip JSON code blocks from markdown content
+function stripJsonCodeBlocks(content: string): string {
+  if (!content) return content;
+  // Remove ```json ... ``` blocks
+  let cleaned = content.replace(/```json[\s\S]*?```/gi, '');
+  // Remove standalone JSON objects at the start of content
+  cleaned = cleaned.replace(/^[\s]*\{[\s\S]*?\}[\s]*(?=##|#|\n\n)/m, '');
+  // Clean up multiple newlines
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  return cleaned.trim();
+}
+
 function extractMarkdownSections(markdown: string) {
-  const lines = markdown.split("\n");
+  // First, strip JSON code blocks from the content
+  const cleanedMarkdown = stripJsonCodeBlocks(markdown);
+  const lines = cleanedMarkdown.split("\n");
   const sections: { title: string; content: string; excerpt: string }[] = [];
   let currentTitle = "Overview";
   let currentLines: string[] = [];
@@ -202,9 +467,11 @@ function extractMarkdownSections(markdown: string) {
     if (currentLines.length === 0) return;
     const content = currentLines.join("\n").trim();
     if (!content) return;
+    // Skip sections that are just JSON
+    if (content.trim().startsWith('{') && content.trim().endsWith('}')) return;
     const excerptLine = content
       .split("\n")
-      .find((line) => line.trim().length > 0 && !/^#+\s+/.test(line));
+      .find((line) => line.trim().length > 0 && !/^#+\s+/.test(line) && !line.startsWith('```'));
     const excerpt = (excerptLine || content).replace(/\s+/g, " ").slice(0, 140);
     sections.push({ title: currentTitle, content, excerpt });
   };
@@ -743,7 +1010,7 @@ function SectionModal({
             <div className="overflow-y-auto max-h-[calc(85vh-120px)] p-6">
               <div className="prose prose-slate max-w-none prose-headings:text-slate-900 prose-headings:font-semibold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-p:text-slate-600 prose-p:leading-relaxed prose-li:text-slate-600 prose-strong:text-slate-900 prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline prose-blockquote:border-l-blue-500 prose-blockquote:bg-blue-50/60 prose-blockquote:text-slate-600 prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-pre:rounded-xl prose-table:w-full prose-table:text-sm prose-th:bg-slate-50 prose-th:text-slate-700 prose-th:font-semibold prose-th:p-2 prose-td:p-2 prose-td:border prose-th:border">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {currentSection.content}
+                  {stripJsonCodeBlocks(currentSection.content)}
                 </ReactMarkdown>
               </div>
               
@@ -824,7 +1091,23 @@ function ResearchItemCard({ item }: { item: any }) {
   const title = safeStringify(rawTitle);
   const description = safeStringify(rawDescription);
   const sourceUrl = item.source || "";
-  const isMarkdown = item.isMarkdown || (typeof rawDescription === "object");
+  
+  // Check if the raw description is JSON (object or string that looks like JSON)
+  const isJsonObject = typeof rawDescription === 'object' && rawDescription !== null;
+  const isJsonString = typeof rawDescription === 'string' && isJsonContent(rawDescription);
+  const isJson = isJsonObject || isJsonString;
+  
+  // Parse JSON if needed
+  const jsonData = useMemo(() => {
+    if (isJsonObject) return rawDescription;
+    if (isJsonString) return parseJsonSafe(rawDescription);
+    // Also check if the whole item looks like JSON data (e.g. has company, financials properties)
+    if (item.company || item.financials || item.recentActivity) return item;
+    return null;
+  }, [rawDescription, isJsonObject, isJsonString, item]);
+  
+  const isMarkdown = item.isMarkdown && !isJson;
+  
   // Extract image URLs - handle both string arrays and object arrays
   const imageUrls = Array.isArray(item.images) 
     ? item.images.map((img: any) => {
@@ -841,6 +1124,69 @@ function ResearchItemCard({ item }: { item: any }) {
     setSelectedSection(section);
     setModalOpen(true);
   };
+
+  // If this is JSON data, render with JsonDataRenderer
+  if (jsonData && (isJson || item.company || item.financials)) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl border border-slate-200 p-6"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Structured Data</p>
+            <h3 className="text-lg font-semibold text-slate-900 mt-1">{title || "Research Results"}</h3>
+          </div>
+          <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+            AI Analyzed
+          </span>
+        </div>
+        {imageUrls.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            {imageUrls.slice(0, 4).map((imageUrl: string, idx: number) => (
+              <div key={`img-${idx}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                <img
+                  src={imageUrl}
+                  alt={`Visual ${idx + 1}`}
+                  className="h-32 w-full object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    (e.target as HTMLElement).parentElement!.style.display = 'none';
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <JsonDataRenderer data={jsonData} />
+        {item.citations && item.citations.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <p className="text-xs font-medium text-slate-500 mb-2">Sources:</p>
+            <div className="flex flex-wrap gap-2">
+              {item.citations.slice(0, 5).map((citation: string, idx: number) => (
+                <a
+                  key={idx}
+                  href={citation}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  [{idx + 1}] {new URL(citation).hostname}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs text-slate-400">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          <span>Powered by Perplexity AI</span>
+        </div>
+      </motion.div>
+    );
+  }
 
   // If this is markdown content, render with ReactMarkdown
   if (isMarkdown && description) {
@@ -916,7 +1262,7 @@ function ResearchItemCard({ item }: { item: any }) {
         {/* Full Report - Always visible */}
         <div className="prose prose-slate max-w-none prose-headings:text-slate-900 prose-headings:font-semibold prose-h1:text-2xl prose-h1:mt-6 prose-h1:mb-3 prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h3:text-base prose-h3:mt-4 prose-h3:mb-2 prose-p:text-slate-600 prose-p:leading-relaxed prose-li:text-slate-600 prose-strong:text-slate-900 prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline prose-blockquote:border-l-blue-500 prose-blockquote:bg-blue-50/60 prose-blockquote:text-slate-600 prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-pre:rounded-xl prose-pre:px-4 prose-pre:py-3 prose-code:text-slate-900 prose-table:w-full prose-table:text-sm prose-th:bg-slate-50 prose-th:text-slate-700 prose-th:font-semibold prose-th:p-2 prose-td:p-2 prose-td:border prose-th:border">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {description}
+            {stripJsonCodeBlocks(description)}
           </ReactMarkdown>
         </div>
         {item.citations && item.citations.length > 0 && (
@@ -1072,7 +1418,7 @@ function UpdateCard({ update, compact = false }: { update: IntelligenceUpdate; c
           <div className={`${compact ? "mt-2 text-sm" : "mt-3 text-sm"} text-slate-600 leading-relaxed`}>
             <div className="prose prose-slate max-w-none prose-headings:text-slate-900 prose-headings:font-semibold prose-h1:text-xl prose-h2:text-lg prose-h3:text-base prose-p:text-slate-600 prose-li:text-slate-600 prose-strong:text-slate-900 prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline prose-blockquote:border-l-blue-500 prose-blockquote:bg-blue-50/60 prose-blockquote:text-slate-600 prose-table:w-full prose-table:text-sm prose-th:bg-slate-50 prose-th:text-slate-700 prose-th:font-semibold prose-th:p-2 prose-td:p-2 prose-td:border prose-th:border">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {safeStringify(update.description)}
+                {stripJsonCodeBlocks(safeStringify(update.description))}
               </ReactMarkdown>
             </div>
           </div>
