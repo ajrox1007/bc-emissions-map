@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { Resend } from "resend";
 import { generateAuditPdf } from "@/server/lib/audit-pdf";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+function getResend() {
+  const { Resend } = require("resend");
+  return new Resend(process.env.RESEND_API_KEY);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest) {
             const callerLabel = updatedSession.callerName || updatedSession.callerNumber;
             const dateStr = new Date().toISOString().split("T")[0];
 
-            await resend.emails.send({
+            await getResend().emails.send({
               from: "Elevate Edge <onboarding@resend.dev>",
               to: [setting.value],
               subject: `Call Audit: ${callTypeLabel} Intake - ${callerLabel} (${dateStr})`,
