@@ -15,10 +15,15 @@ import ProjectFilters from "@/components/ProjectFilters";
 import ProjectDetail from "@/components/ProjectDetail";
 import AIChatbot from "@/components/AIChatbot";
 import CompetitiveIntelligence from "@/components/CompetitiveIntelligence";
+import SettingsTab from "@/components/SettingsTab";
+import CallHistory from "@/components/CallHistory";
+import CustomProjectsUpload from "@/components/CustomProjectsUpload";
+import CustomProjectsMap from "@/components/CustomProjectsMap";
+import CustomProjectsTable from "@/components/CustomProjectsTable";
 
 type Segment = "Res" | "CSMI" | "MIXED";
-type ViewMode = "maps" | "dashboard" | "opportunities" | "rebates" | "intelligence";
-type MapType = "emissions" | "projects";
+type ViewMode = "maps" | "dashboard" | "opportunities" | "rebates" | "intelligence" | "calls" | "settings";
+type MapType = "emissions" | "projects" | "custom";
 type EnergySourceFilter = "all" | "fossilHeavy" | "electricHeavy" | "electricDominant";
 
 const DEFAULT_THRESHOLD = 10000;
@@ -31,6 +36,8 @@ const VIEW_TABS: { id: ViewMode; label: string; description: string }[] = [
   { id: "opportunities", label: "Leads", description: "Conversion opportunities" },
   { id: "intelligence", label: "Intelligence", description: "Competitive intelligence" },
   { id: "rebates", label: "Rebates", description: "Calculate incentives" },
+  { id: "calls", label: "Calls", description: "Phone agent call history" },
+  { id: "settings", label: "Settings", description: "Documents & configuration" },
 ];
 
 export default function Home() {
@@ -54,6 +61,12 @@ export default function Home() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
+
+  // Custom projects state
+  const [customViewMode, setCustomViewMode] = useState<"map" | "table">("map");
+  const [customFileFilter, setCustomFileFilter] = useState<string | undefined>(undefined);
+  const [customCategoryFilter, setCustomCategoryFilter] = useState<string | undefined>(undefined);
+  const [customSearchQuery, setCustomSearchQuery] = useState("");
 
   // Emissions query
   const { data: communities, isLoading: loadingCommunities } = trpc.getFilteredCommunities.useQuery({
@@ -81,6 +94,17 @@ export default function Home() {
     minCost: projectMinCost > 0 ? projectMinCost : undefined,
     maxCost: projectMaxCost < 25000 ? projectMaxCost : undefined,
   });
+
+  // Custom projects queries
+  const { data: customProjects, isLoading: loadingCustomProjects } = trpc.ai.getCustomProjects.useQuery({
+    fileId: customFileFilter,
+    category: customCategoryFilter,
+    searchQuery: customSearchQuery || undefined,
+  });
+  const { data: customFiles } = trpc.ai.getCustomProjectFiles.useQuery();
+  const { data: customStats } = trpc.ai.getCustomProjectStats.useQuery();
+  const deleteCustomFile = trpc.ai.deleteCustomProjectFile.useMutation();
+  const utils = trpc.useUtils();
 
   const handleReset = useCallback(() => {
     setSelectedSegments(DEFAULT_SEGMENTS);
@@ -121,6 +145,12 @@ export default function Home() {
   // Determine which sidebar to show
   const showEmissionFilters = (view === "maps" && mapType === "emissions") || view === "dashboard";
   const showProjectFilters = view === "maps" && mapType === "projects";
+  const showCustomSidebar = view === "maps" && mapType === "custom";
+
+  // Unique categories from custom projects
+  const customCategories = customProjects
+    ? [...new Set(customProjects.map((p) => p.category).filter(Boolean))] as string[]
+    : [];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -204,6 +234,126 @@ export default function Home() {
           </aside>
         )}
 
+        {/* Custom Projects Sidebar */}
+        {showCustomSidebar && (
+          <aside className="w-full md:w-80 border-b md:border-b-0 md:border-r border-black overflow-y-auto flex-shrink-0">
+            <div className="p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-bold uppercase tracking-wider">Custom Projects</h2>
+              </div>
+
+              {/* Upload */}
+              <CustomProjectsUpload
+                onUploadComplete={() => {
+                  utils.ai.getCustomProjects.invalidate();
+                  utils.ai.getCustomProjectFiles.invalidate();
+                  utils.ai.getCustomProjectStats.invalidate();
+                }}
+              />
+
+              {/* Search */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search custom projects..."
+                  value={customSearchQuery}
+                  onChange={(e) => setCustomSearchQuery(e.target.value)}
+                  className="input text-xs w-full pl-8"
+                />
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+
+              {/* Filters */}
+              {(customCategories.length > 0 || (customFiles && customFiles.length > 1)) && (
+                <div className="space-y-3">
+                  <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Filters</p>
+
+                  {customFiles && customFiles.length > 1 && (
+                    <div>
+                      <label className="text-[10px] text-gray-500 uppercase tracking-wider">File Source</label>
+                      <select
+                        value={customFileFilter || ""}
+                        onChange={(e) => setCustomFileFilter(e.target.value || undefined)}
+                        className="input text-xs w-full mt-1"
+                      >
+                        <option value="">All files</option>
+                        {customFiles.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.filename} ({f._count.projects})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {customCategories.length > 0 && (
+                    <div>
+                      <label className="text-[10px] text-gray-500 uppercase tracking-wider">Category</label>
+                      <select
+                        value={customCategoryFilter || ""}
+                        onChange={(e) => setCustomCategoryFilter(e.target.value || undefined)}
+                        className="input text-xs w-full mt-1"
+                      >
+                        <option value="">All categories</option>
+                        {customCategories.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Uploaded Files List */}
+              {customFiles && customFiles.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Uploaded Files</p>
+                  {customFiles.map((f) => (
+                    <div key={f.id} className="card p-3 space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium truncate">{f.filename}</p>
+                          <p className="text-[10px] text-gray-400">
+                            {f._count.projects} projects &middot; {new Date(f.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Delete ${f.filename} and all its projects?`)) return;
+                            await deleteCustomFile.mutateAsync({ id: f.id });
+                            utils.ai.getCustomProjectFiles.invalidate();
+                            utils.ai.getCustomProjects.invalidate();
+                            utils.ai.getCustomProjectStats.invalidate();
+                          }}
+                          className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0 ml-2"
+                          title="Delete file"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                      {/* Insights */}
+                      {f.insights && (
+                        <div className="bg-blue-50 border border-blue-100 rounded p-2">
+                          <p className="text-[10px] font-medium text-blue-700 uppercase tracking-wider mb-1">AI Insights</p>
+                          <p className="text-[10px] text-blue-800 whitespace-pre-line leading-relaxed">
+                            {f.insights}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
+
         {/* Center - Main Content */}
         <div className="flex-1 flex flex-col relative">
           <AnimatePresence mode="wait">
@@ -237,6 +387,16 @@ export default function Home() {
                       }`}
                     >
                       Projects Map
+                    </button>
+                    <button
+                      onClick={() => setMapType("custom")}
+                      className={`px-4 py-2 text-xs font-medium rounded transition-colors ${
+                        mapType === "custom"
+                          ? "bg-black text-white"
+                          : "text-gray-600 hover:text-black hover:bg-gray-100"
+                      }`}
+                    >
+                      Custom Projects
                     </button>
                   </div>
                 </div>
@@ -372,6 +532,89 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+
+                {/* Custom Projects View */}
+                {mapType === "custom" && (
+                  <div className="flex-1 relative flex flex-col">
+                    {/* Map/Table Toggle */}
+                    <div className="absolute top-16 left-1/2 -translate-x-1/2 z-10">
+                      <div className="card p-1 bg-white/95 backdrop-blur-sm flex gap-1">
+                        <button
+                          onClick={() => setCustomViewMode("map")}
+                          className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                            customViewMode === "map"
+                              ? "bg-gray-900 text-white"
+                              : "text-gray-600 hover:text-black hover:bg-gray-100"
+                          }`}
+                        >
+                          Map View
+                        </button>
+                        <button
+                          onClick={() => setCustomViewMode("table")}
+                          className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                            customViewMode === "table"
+                              ? "bg-gray-900 text-white"
+                              : "text-gray-600 hover:text-black hover:bg-gray-100"
+                          }`}
+                        >
+                          Table View
+                        </button>
+                      </div>
+                    </div>
+
+                    {loadingCustomProjects ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+                        <div className="text-center">
+                          <div className="w-8 h-8 border-2 border-black border-t-transparent animate-spin mx-auto mb-4" />
+                          <p className="text-sm text-gray-500">Loading custom projects...</p>
+                        </div>
+                      </div>
+                    ) : customViewMode === "map" ? (
+                      <CustomProjectsMap projects={customProjects || []} />
+                    ) : (
+                      <CustomProjectsTable projects={customProjects || []} />
+                    )}
+
+                    {/* Custom Stats Overlay */}
+                    {customViewMode === "map" && customStats && (
+                      <div className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-64">
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.3 }}
+                          className="card p-4 bg-white/95 backdrop-blur-sm"
+                        >
+                          <div className="space-y-2 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-gray-500 uppercase tracking-wider">Projects</span>
+                              <span className="data-value font-medium">{customStats.totalProjects}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500 uppercase tracking-wider">On Map</span>
+                              <span className="data-value font-medium text-green-600">{customStats.withLocation}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500 uppercase tracking-wider">Files</span>
+                              <span className="data-value font-medium">{customStats.totalFiles}</span>
+                            </div>
+                            {customStats.totalCost > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-500 uppercase tracking-wider">Total Cost</span>
+                                <span className="data-value font-bold">
+                                  ${customStats.totalCost >= 1_000_000_000
+                                    ? `${(customStats.totalCost / 1_000_000_000).toFixed(1)}B`
+                                    : customStats.totalCost >= 1_000_000
+                                    ? `${(customStats.totalCost / 1_000_000).toFixed(1)}M`
+                                    : customStats.totalCost.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -424,6 +667,30 @@ export default function Home() {
                 className="flex-1 overflow-y-auto"
               >
                 <CompetitiveIntelligence />
+              </motion.div>
+            )}
+
+            {view === "calls" && (
+              <motion.div
+                key="calls"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex-1 overflow-y-auto"
+              >
+                <CallHistory />
+              </motion.div>
+            )}
+
+            {view === "settings" && (
+              <motion.div
+                key="settings"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex-1 overflow-y-auto"
+              >
+                <SettingsTab />
               </motion.div>
             )}
           </AnimatePresence>

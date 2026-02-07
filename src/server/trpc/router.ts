@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "./trpc";
 import { aiRouter } from "./ai-router";
+import { callRouter } from "./call-router";
 import {
   BC_GHG_TARGETS,
   ZERO_CARBON_STEP_CODE,
@@ -1107,6 +1108,7 @@ export const appRouter = router({
 
   // AI Router - Chat, Documents, Conversations
   ai: aiRouter,
+  calls: callRouter,
 });
 
 export type AppRouter = typeof appRouter;

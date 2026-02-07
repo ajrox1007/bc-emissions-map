@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { generateEmbeddings } from "@/server/lib/embeddings";
+import { queryVectors } from "@/server/lib/pinecone";
 
 /**
  * Perplexity Agentic Research API - GPT-5.2 Integration
@@ -155,12 +157,34 @@ Provide a comprehensive report with:
 
 IMPORTANT: Think out loud. Share your reasoning process as you research. This helps the user understand your methodology.`;
 
-// Fetch uploaded documents for context
-async function getDocumentContext(): Promise<string> {
+// Fetch uploaded documents for context — uses vector search when available, falls back to raw content
+async function getDocumentContext(query: string): Promise<string> {
+  let context = "";
+
+  // 1. Try vector search for semantically relevant chunks
+  try {
+    const [embeddings] = await generateEmbeddings([query]).then(e => [e[0]]);
+    if (embeddings) {
+      const matches = await queryVectors(embeddings, 8);
+      if (matches.length > 0) {
+        context += "\n\n[RELEVANT DOCUMENT CHUNKS (via semantic search)]\n";
+        for (const match of matches) {
+          const meta = match.metadata as Record<string, any>;
+          context += `\n--- From: ${meta.filename || "Unknown"} (relevance: ${(match.score ?? 0).toFixed(2)}) ---\n`;
+          context += `${meta.text || ""}\n`;
+        }
+      }
+    }
+  } catch (error) {
+    // Vector search unavailable (missing API keys, etc.) — fall through to raw content
+    console.log("Vector search unavailable, using raw document content:", (error as Error).message);
+  }
+
+  // 2. Always include document summaries + raw content fallback
   try {
     const documents = await prisma.uploadedDocument.findMany({
       orderBy: { createdAt: "desc" },
-      take: 10, // Limit to most recent 10 documents
+      take: 10,
       select: {
         filename: true,
         summary: true,
@@ -169,34 +193,26 @@ async function getDocumentContext(): Promise<string> {
       },
     });
 
-    if (documents.length === 0) {
-      return "";
+    if (documents.length > 0) {
+      context += "\n\n[UPLOADED DOCUMENTS CONTEXT]\n";
+      context += `You have access to ${documents.length} uploaded document(s):\n\n`;
+
+      for (const doc of documents) {
+        context += `--- Document: ${doc.filename} ---\n`;
+        if (doc.category) context += `Category: ${doc.category}\n`;
+        if (doc.summary) context += `Summary: ${doc.summary}\n`;
+        if (doc.content) {
+          const truncatedContent = doc.content.substring(0, 5000);
+          context += `Content Preview:\n${truncatedContent}${doc.content.length > 5000 ? '\n[... content truncated ...]' : ''}\n`;
+        }
+        context += "\n";
+      }
     }
-
-    let context = "\n\n[UPLOADED DOCUMENTS CONTEXT]\n";
-    context += `You have access to ${documents.length} uploaded document(s) that may be relevant:\n\n`;
-
-    for (const doc of documents) {
-      context += `--- Document: ${doc.filename} ---\n`;
-      if (doc.category) {
-        context += `Category: ${doc.category}\n`;
-      }
-      if (doc.summary) {
-        context += `Summary: ${doc.summary}\n`;
-      }
-      if (doc.content) {
-        // Include first 5000 chars of content for context
-        const truncatedContent = doc.content.substring(0, 5000);
-        context += `Content Preview:\n${truncatedContent}${doc.content.length > 5000 ? '\n[... content truncated ...]' : ''}\n`;
-      }
-      context += "\n";
-    }
-
-    return context;
   } catch (error) {
     console.error("Error fetching document context:", error);
-    return "";
   }
+
+  return context;
 }
 
 // Helper to build data context from database
@@ -551,9 +567,10 @@ async function callAgenticAPI(
     model?: string;
     returnImages?: boolean;
     researchMode?: boolean;
+    maxTokens?: number;
   } = {}
 ): Promise<ApiResult> {
-  const { model = "openai/gpt-5.2", returnImages = false, researchMode = false } = options;
+  const { model = "openai/gpt-5.2", returnImages = false, researchMode = false, maxTokens } = options;
 
   try {
     console.log(`Trying Agentic API (${model})${researchMode ? ' [RESEARCH MODE]' : ''}...`);
@@ -563,7 +580,7 @@ async function callAgenticAPI(
       input: userInput,
       instructions: systemInstructions,
       tools: [{ type: "web_search" }],
-      max_output_tokens: MAX_OUTPUT_TOKENS,
+      max_output_tokens: maxTokens || MAX_OUTPUT_TOKENS,
     };
 
     // Enable reasoning for research mode to get thinking process
@@ -698,9 +715,10 @@ async function callChatAPI(
     imageDomainFilter?: string[];
     imageFormatFilter?: string[];
     researchMode?: boolean;
+    maxTokens?: number;
   } = {}
 ): Promise<ApiResult> {
-  const { model = "sonar-pro", returnImages = false, imageDomainFilter, imageFormatFilter, researchMode = false } = options;
+  const { model = "sonar-pro", returnImages = false, imageDomainFilter, imageFormatFilter, researchMode = false, maxTokens } = options;
 
   try {
     console.log(`Trying Chat API (${model})${researchMode ? ' [RESEARCH MODE]' : ''}...`);
@@ -714,7 +732,7 @@ async function callChatAPI(
       model,
       messages: fullMessages,
       temperature: researchMode ? 0.3 : 0.2,
-      max_tokens: MAX_OUTPUT_TOKENS,
+      max_tokens: maxTokens || MAX_OUTPUT_TOKENS,
       top_p: 0.9,
     };
 
@@ -797,8 +815,8 @@ async function callChatAPI(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { 
-      messages, 
+    const {
+      messages,
       model: requestedModel,
       return_images = false,
       image_domain_filter,
@@ -807,6 +825,7 @@ export async function POST(request: NextRequest) {
       customSystemPrompt,
       files,
       researchMode = false,
+      voiceMode = false,
     } = body;
 
     if (!messages || !Array.isArray(messages)) {
@@ -826,17 +845,17 @@ export async function POST(request: NextRequest) {
     const lastUserMessage = messages.filter((m: any) => m.role === "user").pop();
     const userQuery = lastUserMessage?.content || "";
     
-    // Build context from database and uploaded documents
-    const dataContext = skipContext ? "" : await buildDataContext(userQuery);
-    const documentContext = await getDocumentContext();
+    // Voice mode: skip all heavy context for fast responses
+    const dataContext = (skipContext || voiceMode) ? "" : await buildDataContext(userQuery);
+    const documentContext = voiceMode ? "" : await getDocumentContext(userQuery);
     const fullUserInput = `${userQuery}${dataContext}${documentContext}`;
-    
+
     // Use research instructions if research mode is enabled
-    const systemPrompt = researchMode 
-      ? RESEARCH_INSTRUCTIONS 
+    const systemPrompt = researchMode
+      ? RESEARCH_INSTRUCTIONS
       : (customSystemPrompt || SYSTEM_INSTRUCTIONS);
-    
-    console.log(`Processing request: researchMode=${researchMode}, model=${requestedModel || 'default'}, docs=${documentContext ? 'yes' : 'no'}`);
+
+    console.log(`Processing request: researchMode=${researchMode}, voiceMode=${voiceMode}, model=${requestedModel || 'default'}, docs=${documentContext ? 'yes' : 'no'}`);
 
     // Determine model fallback chain based on requested model
     // Agentic API models (OpenAI, Anthropic, Google)
@@ -874,12 +893,16 @@ export async function POST(request: NextRequest) {
 
     let result: ApiResult = { success: false };
 
+    // Voice mode: cap at 300 tokens for fast responses
+    const tokenLimit = voiceMode ? 300 : undefined;
+
     // Try Agentic API first (GPT-5.2)
     for (const model of agenticModels) {
       result = await callAgenticAPI(apiKey, fullUserInput, systemPrompt, {
         model,
         returnImages: return_images,
         researchMode,
+        maxTokens: tokenLimit,
       });
       if (result.success) break;
     }
@@ -890,7 +913,7 @@ export async function POST(request: NextRequest) {
         ...messages.slice(0, -1),
         { role: "user", content: fullUserInput },
       ];
-      
+
       for (const model of chatModels) {
         result = await callChatAPI(apiKey, chatMessages, systemPrompt, {
           model,
@@ -898,6 +921,7 @@ export async function POST(request: NextRequest) {
           imageDomainFilter: image_domain_filter,
           imageFormatFilter: image_format_filter,
           researchMode,
+          maxTokens: tokenLimit,
         });
         if (result.success) break;
       }

@@ -129,16 +129,19 @@ model Message {
 }
 
 model UploadedDocument {
-  id        String    @id @default(uuid())
-  filename  String
-  mimetype  String
-  size      Int
-  content   String?
-  summary   String?
-  category  String?
-  filepath  String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                   String    @id @default(uuid())
+  filename             String
+  mimetype             String
+  size                 Int
+  content              String?
+  summary              String?
+  category             String?
+  filepath             String?
+  vectorizationStatus  String    @default("pending")
+  chunkCount           Int       @default(0)
+  vectorizationError   String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 // Competitive Intelligence Models
@@ -214,4 +217,81 @@ model Battlecard {
   updatedBy    String?
 
   competitor Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+}
+
+model AppSettings {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Twilio AI Phone Agent Models
+model CallSession {
+  id              String   @id @default(cuid())
+  twilioCallSid   String   @unique
+  callerNumber    String
+  direction       String   @default("outbound") // inbound, outbound
+  status          String   @default("active") // active, completed, transferred, failed
+  callType        String?  // design, service, quote, emergency, general, unknown
+  intakeData      String?  // JSON blob with all collected fields
+  callerName      String?
+  callerEmail     String?
+  callerAddress   String?
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  duration        Int?
+  auditPdfSent    Boolean  @default(false)
+  summary         String?
+  turns           CallTurn[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([callType])
+  @@index([startedAt])
+  @@index([direction])
+}
+
+model CallTurn {
+  id            String      @id @default(cuid())
+  sessionId     String
+  session       CallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role          String      // "agent" or "caller"
+  content       String
+  extractedData String?     // JSON
+  turnNumber    Int
+  timestamp     DateTime    @default(now())
+
+  @@index([sessionId])
+}
+
+// Custom Projects Upload
+model CustomProjectFile {
+  id            String   @id @default(uuid())
+  filename      String
+  rowCount      Int      @default(0)
+  columnMapping String?  // JSON: {columnHeader: standardField}
+  insights      String?  // AI-generated insights text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  projects CustomProject[]
+}
+
+model CustomProject {
+  id            String   @id @default(uuid())
+  fileId        String
+  file          CustomProjectFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  name          String
+  latitude      Float?
+  longitude     Float?
+  address       String?
+  category      String?
+  status        String?
+  estimatedCost Float?
+  metadata      String?  // JSON: all extra/dynamic columns
+  createdAt     DateTime @default(now())
+
+  @@index([fileId])
+  @@index([category])
 }

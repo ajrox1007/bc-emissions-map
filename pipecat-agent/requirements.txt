@@ -1,0 +1,8 @@
+pipecat-ai[deepgram,openai,silero]
+pipecat-murf-tts
+fastapi
+uvicorn[standard]
+websockets
+aiohttp
+python-dotenv
+twilio
